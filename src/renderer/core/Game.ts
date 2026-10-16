@@ -54,6 +54,10 @@ export class Game {
   private fishPicker: HTMLElement | null = null
   private fishGrid: HTMLElement | null = null
   private fishIcons: Record<string, string> = {}
+  /** 原生拖拽层（app-region:drag）：覆盖人物正方形，由 OS 合成器移动窗口，顺滑无重影 */
+  private petHandle: HTMLElement | null = null
+  /** 拖拽层之上的 no-drag 透明热区：让"点按/按住人物"正常落到 Input（钓鱼可蓄力/收线） */
+  private petHit: HTMLElement | null = null
 
   /** 主进程桥（拖拽/退出/自启/点击穿透） */
   private bridge: PetBridge | undefined
@@ -65,8 +69,6 @@ export class Game {
   private clickThrough = false
   /** 强制可交互：钓鱼进行中或任意弹窗打开时，无视指针位置，整窗可点 */
   private forceInteractive = false
-  /** 手动拖拽进行中：拖拽期间强制整窗可交互，否则 setIgnoreMouseEvents 会把后续 move/up 吞掉导致拖不动 */
-  private dragActive = false
   /** 用于穿透判定的指针坐标（由 mousemove 实时写入；-1 表示未知） */
   private ctPtrX = -1
   private ctPtrY = -1
@@ -103,52 +105,51 @@ export class Game {
     const bridge = (window as unknown as { fishingCodex?: PetBridge }).fishingCodex
     this.bridge = bridge
 
-    // 人物区交互：不再用单独的拖拽手柄层（那层会吞掉 mousedown，正是"点身体无效 / 不能蓄力"的根因）。
-    // 改为：整窗由 canvas 接收输入（Input 负责钓鱼的蓄力/收线），Game 只在窗口级监听里做两件事：
-    //  1) 仅当「空闲态」时点住人物热区并移动 → 判定为拖动窗口（bridge.drag 增量移窗）；
-    //     一旦判定为拖拽，立即 cancelHeld + abort，撤销这次钓鱼按下，避免松手误抛竿。
-    //  2) 不移动的点按 / 按住 → 完全交给 Input 走钓鱼流程（蓄力、收线都能用）。
-    // 钓鱼进行中（charge/wait/hook/minigame/result）人物区照常作为钓鱼输入，绝不触发拖窗。
-    // 命中区 = 人物外扩的近似正方形（含等级徽章及下方区域），见 inPetBody()。
-    let petDown = false, petMoved = false, petSX = 0, petSY = 0, petLX = 0, petLY = 0
-    const DRAG_TH = 5
-    window.addEventListener('pointerdown', (e: PointerEvent) => {
-      if (e.button !== 0) return
-      const rect = this.canvas.getBoundingClientRect()
-      const x = e.clientX - rect.left
-      const y = e.clientY - rect.top
-      // 仅在「空闲态」把人物区当成可拖动热区；钓鱼进行中该区照常作为钓鱼输入（可蓄力/收线）。
-      if (this.controller.stateName !== 'idle' || !this.inPetBody(x, y)) return
-      petDown = true
-      petMoved = false
-      petSX = petLX = e.clientX
-      petSY = petLY = e.clientY
-    })
-    window.addEventListener('pointermove', (e: PointerEvent) => {
-      if (!petDown) return
-      const dx = e.clientX - petLX
-      const dy = e.clientY - petLY
-      if (!petMoved && Math.hypot(e.clientX - petSX, e.clientY - petSY) > DRAG_TH) {
-        petMoved = true
-        // 判定为拖动窗口：撤销这次钓鱼按下（否则松开会误抛竿），并复位状态机
-        this.input.cancelHeld()
-        this.controller.abort()
-        this.dragActive = true // 拖动期间强制整窗可交互，穿透不抢走后续 move/up
-      }
-      if (petMoved) {
-        bridge?.drag(dx, dy)
-        petLX = e.clientX
-        petLY = e.clientY
-      }
-    })
-    const petEnd = () => {
-      if (!petDown) return
-      petDown = false
-      this.dragActive = false
-      // petMoved=false 时什么都不做：Input 已正常收到按下/松开 → 钓鱼照常（蓄力/收线）
-    }
-    window.addEventListener('pointerup', petEnd)
-    window.addEventListener('pointercancel', petEnd)
+    // 人物区交互（拖拽 + 钓鱼，二者兼顾且不重影）：
+    //  - 用原生 -webkit-app-region:drag 实现拖窗 —— 由操作系统合成器移动窗口，顺滑无重影
+    //    （手动 bridge.drag 走 setPosition 在透明置顶窗上会留拖影，已弃用）。
+    //  - 但 app-region:drag 会吞掉 mousedown，导致无法在人物身上蓄力/收线。解决：在拖拽层之上
+    //    再放一个 app-region:no-drag 的透明热区（pet-hit），让"点按/按住人物"正常落到 Input
+    //    （蓄力、收线都能用），而热区四周的"边框"仍是 drag 区 → 从边缘拖动窗口。
+    //  这样：人物正方形中间=钓鱼（点/按住），四周=拖窗，全程无重影。
+    const SIDE = 160
+    const cx = T.PLAYER_X
+    const cy = T.PLAYER_FOOT_Y - (T.PLAYER_H * T.PLAYER_SCALE) / 2
+    const sqL = cx - SIDE / 2
+    const sqT = cy - SIDE / 2
+    // 右下角工具按钮(TOOLS_BTN)落在正方形右下角，拖拽层不能盖住它，否则点工具会变拖窗
+    const hL = sqL
+    const hT = sqT
+    const hW = T.TOOLS_BTN.x - 14 - sqL
+    const hH = T.TOOLS_BTN.y - 14 - sqT
+    const handle = document.createElement('div')
+    handle.id = 'pet-handle'
+    handle.style.position = 'absolute'
+    handle.style.left = `${hL}px`
+    handle.style.top = `${hT}px`
+    handle.style.width = `${hW}px`
+    handle.style.height = `${hH}px`
+    handle.style.setProperty('-webkit-app-region', 'drag')
+    handle.style.cursor = 'grab'
+    ;(document.getElementById('stage') as HTMLElement).appendChild(handle)
+    this.petHandle = handle
+
+    // 钓鱼热区：拖拽层之上的 no-drag 透明层，覆盖人物本体区域，接收点按/按住 → 钓鱼
+    const pad = 38
+    const hit = document.createElement('div')
+    hit.id = 'pet-hit'
+    hit.style.position = 'absolute'
+    hit.style.left = `${hL + pad}px`
+    hit.style.top = `${hT + pad}px`
+    hit.style.width = `${hW - pad * 2}px`
+    hit.style.height = `${hH - pad * 2}px`
+    hit.style.setProperty('-webkit-app-region', 'no-drag')
+    hit.style.cursor = 'grab'
+    hit.style.touchAction = 'none'
+    handle.appendChild(hit)
+    this.petHit = hit
+    // 点按/按住人物 = 钓鱼：事件落到 Input（蓄力/收线），由 canvas 接收指针
+    hit.addEventListener('pointerdown', (e: PointerEvent) => this.input.handlePointerDown(e))
 
     // 右下角工具按钮：点击弹出 设置 / 音效 / 退出
     const t = T.TOOLS_BTN
@@ -232,16 +233,15 @@ export class Game {
       !!this.charPicker?.classList.contains('visible') ||
       !!this.rodPicker?.classList.contains('visible') ||
       !!this.fishPicker?.classList.contains('visible')
-    this.forceInteractive = active || overlayOpen || this.dragActive
+    this.forceInteractive = active || overlayOpen
     this.updateClickThrough()
 
-    // 光标：人物热区（空闲态）显示手型 grab，拖动中 grabbing，其余区域 pointer（暗示可点击钓鱼）
+    // 光标：人物热区（空闲态）显示手型 grab，其余区域 pointer（暗示可点击钓鱼）
     const overPet =
       this.ctPtrX >= 0 && this.ctPtrY >= 0 && this.inPetBody(this.ctPtrX, this.ctPtrY)
-    let cursor = 'pointer'
-    if (this.dragActive) cursor = 'grabbing'
-    else if (overPet && this.controller.stateName === 'idle') cursor = 'grab'
-    this.canvas.style.cursor = cursor
+    const idle = this.controller.stateName === 'idle'
+    this.canvas.style.cursor = 'pointer'
+    if (this.petHit) this.petHit.style.cursor = overPet && idle ? 'grab' : 'pointer'
   }
 
   /** 构建工具菜单（DOM 覆盖层）：

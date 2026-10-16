@@ -43,37 +43,17 @@ export class Input {
   constructor(el: HTMLElement) {
     this.el = el
 
-    const toCanvas = (e: { clientX: number; clientY: number }) => {
-      const rect = el.getBoundingClientRect()
-      return [e.clientX - rect.left, e.clientY - rect.top] as const
-    }
-
-    el.addEventListener('pointerdown', (e) => {
-      e.preventDefault()
-      this.onAnyKey?.()
-      if (e.button !== 0) return
-      const [cx, cy] = toCanvas(e)
-      this.ptrX = cx
-      this.ptrY = cy
-      // 工具按钮：先"按下待确认"，松手仍在按钮上且不在冷静期才弹出
-      if (this.toolsHitTest && this.toolsHitTest(cx, cy)) {
-        this.toolsArmed = true
-        return
-      }
-      // 顶部空白带不钓鱼
-      if (cy < this.deadTopY) return
-      this.addSource('mouse')
-    })
+    el.addEventListener('pointerdown', (e) => this.handlePointerDown(e))
 
     window.addEventListener('pointermove', (e) => {
-      const [cx, cy] = toCanvas(e)
+      const [cx, cy] = this.toCanvas(e)
       this.ptrX = cx
       this.ptrY = cy
     })
 
     const endPress = (e: PointerEvent) => {
       if (e.button !== 0) return
-      const [cx, cy] = toCanvas(e)
+      const [cx, cy] = this.toCanvas(e)
       this.ptrX = cx
       this.ptrY = cy
       if (this.toolsArmed) {
@@ -114,6 +94,35 @@ export class Input {
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) this.lastHideAt = performance.now()
     })
+  }
+
+  /** 屏幕坐标 → 画布坐标 */
+  private toCanvas(e: { clientX: number; clientY: number }): [number, number] {
+    const rect = this.el.getBoundingClientRect()
+    return [e.clientX - rect.left, e.clientY - rect.top]
+  }
+
+  /**
+   * 按下处理：人物热区 / 钓竿热区的点按与按住都汇到这里。
+   * - 工具按钮：先"按下待确认"，松手仍在按钮上且不在冷静期才弹出；
+   * - 顶部空白带不钓鱼；
+   * - 其余 → 记一次"鼠标按住"源（蓄力 / 收线 / 继续钓鱼）。
+   */
+  handlePointerDown(e: PointerEvent): void {
+    e.preventDefault()
+    this.onAnyKey?.()
+    if (e.button !== 0) return
+    const [cx, cy] = this.toCanvas(e)
+    this.ptrX = cx
+    this.ptrY = cy
+    // 工具按钮：先"按下待确认"，松手仍在按钮上且不在冷静期才弹出
+    if (this.toolsHitTest && this.toolsHitTest(cx, cy)) {
+      this.toolsArmed = true
+      return
+    }
+    // 顶部空白带不钓鱼
+    if (cy < this.deadTopY) return
+    this.addSource('mouse')
   }
 
   /** 指针当前画布坐标（用于悬停高亮；-1 表示未知） */
