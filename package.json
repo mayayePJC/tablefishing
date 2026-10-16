@@ -10,6 +10,7 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types scripts/gesture-test.ts",
     "package": "electron-vite build && electron-builder --dir",
     "predist": "node scripts/kill-before-build.cjs",
     "dist": "electron-vite build && electron-builder"

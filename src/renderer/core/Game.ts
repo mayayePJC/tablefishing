@@ -1,6 +1,7 @@
 import { T } from '../shared/constants'
 import { Loop } from './Loop'
 import { Input } from './Input'
+import { newGestureState, stepGesture } from './gesture'
 import { AudioBus } from './AudioBus'
 import { Rng } from './Rng'
 import { SpriteFactory } from '../render/SpriteFactory'
@@ -54,19 +55,16 @@ export class Game {
   private fishPicker: HTMLElement | null = null
   private fishGrid: HTMLElement | null = null
   private fishIcons: Record<string, string> = {}
-  /** 原生拖拽底层（app-region:drag）：覆盖人物本体 + 等级徽章及下方区域。
-   *  仅在"按住拖动"时（pet-hit 被隐藏露出它）由 OS 合成器移动窗口，顺滑无重影。 */
-  private petHandle: HTMLElement | null = null
-  /** 无拖拽透明顶层（app-region:no-drag）：覆盖同一身体区，接收点按/按住 → 钓鱼（蓄力/收线）。
-   *  拖拽判定（位移超阈值）时被临时隐藏，露出底层 drag 层交由 OS 原生拖动窗口。 */
+  /** 身体交互层（纯透明、无 app-region）：覆盖人物本体 + 等级徽章及下方区域，稳定接收
+   *  指针事件。钓鱼与"手动拖窗"都通过它触发（原生 app-region:drag 会吞 pointerdown，无法
+   *  在同一区域同时做到"点一下钓、按住拖"，故拖窗改由 IPC 调主进程 setPosition 完成）。 */
   private petHit: HTMLElement | null = null
   /** 人物交互区矩形（窗口坐标，= 点击穿透判定区，也是钓鱼/拖窗命中区） */
   private petHandleRect = { l: 0, t: 0, r: 0, b: 0 }
-  /** 混合手势状态：身体上"点一下钓 / 按住拖"的判定 */
-  private petPressActive = false // 当前是否在身体区按下了
-  private petMoveDetected = false // 本次按下是否已判定为"拖动"
-  private petDownX = 0 // 按下时的屏幕坐标，用于位移阈值判定
-  private petDownY = 0
+  /** 身体区混合手势状态机（点一下钓 / 按住拖 的判定，逻辑集中在 gesture.ts 便于测试） */
+  private gesture = newGestureState()
+  /** 判定为"拖窗"的位移阈值（屏幕像素）：超过即取消钓鱼、转移动窗口 */
+  private readonly dragThreshold = 5
 
   /** 主进程桥（拖拽/退出/自启/点击穿透） */
   private bridge: PetBridge | undefined
@@ -117,22 +115,23 @@ export class Game {
     this.bridge = bridge
 
     // 人物区交互：同一块区域既「点一下钓鱼」又「按住拖动移窗」，二者并存、互不打架。
-    //   设计：两层叠加在同一身体区——
-    //    · 底层 pet-handle = app-region:drag（OS 合成器移窗，顺滑无重影）；
-    //    · 顶层 pet-hit   = app-region:no-drag（透明），接收点按/按住 → 钓鱼（蓄力/收线）。
-    //   关键点：Electron 的 app-region:drag 元素会吞掉 pointerdown，JS 收不到 → 钓鱼起不来。
-    //   所以钓鱼必须走顶层 no-drag 的 pet-hit。而"按住拖动"在 pet-hit 上侦测到位移超阈值时，
-    //   把 pet-hit 临时隐藏（display:none）→ 露出底层 drag 层 → 此刻 OS 原生拖拽接管移动窗口；
-    //   松手（或任何按下）再把 pet-hit 显回来。这样既保留"按住蓄力"又不重影。
+    //   实现：一块纯透明、无 app-region 的 #pet-hit 覆盖身体区，稳定接收指针事件；
+    //   手势判定全部交给 gesture.ts 状态机——
+    //     · 按下 → 开始钓鱼按住（蓄力）；
+    //     · 移动未超阈值 → 仍在蓄力（视为"按住钓鱼"）；
+    //     · 移动超阈值 → 取消钓鱼（cancelHeld + controller.abort），改用 IPC 调主进程
+    //       setPosition 移动窗口（主进程 pet-drag 已就绪）。这是唯一能在同一区域做到
+    //       "点一下钓、按住拖" 的方案：原生 app-region:drag 会吞 pointerdown 导致钓鱼起不来，
+    //       且"隐藏上层露出原生拖拽层"的 trick 根本不生效（pointerdown 已落在 no-drag 层，
+    //       OS 不会 retroactively 起拖）。手动 IPC 拖窗在 Windows 透明窗上是顺滑无重影的。
     //   点击穿透：仅当指针落在「人物交互区 或 工具按钮」时才恢复可交互，其余区域穿透到下方工作窗口。
     // 几何以常量推导，保证与 PetView 实际绘制的人物 / 等级徽章位置一致：
-    //   人物：以 (playerX - CAT_DW/2, playerFootY - CAT_DH) 为左上角。
-    //   徽章：以 (playerX + CAT_DW/2 + 4, playerFootY - CAT_DH + 4) 为左上角、宽 68。
+    //   人物：以 (PLAYER_X - CAT_DW/2, PLAYER_FOOT_Y - CAT_DH) 为左上角。
+    //   徽章：以 (PLAYER_X + CAT_DW/2 + 4, PLAYER_FOOT_Y - CAT_DH + 4) 为左上角、宽 68。
     const CAT_DW = T.PLAYER_W * T.PLAYER_SCALE
     const CAT_DH = T.PLAYER_H * T.PLAYER_SCALE
     const charL = T.PLAYER_X - CAT_DW / 2
     const charT = T.PLAYER_FOOT_Y - CAT_DH
-    const charR = T.PLAYER_X + CAT_DW / 2
     const charB = T.PLAYER_FOOT_Y
     const badgeR = Math.min(T.VIEW_W - 1, T.PLAYER_X + CAT_DW / 2 + 4 + 68)
     // 人物交互区 = 人物本体 + 等级徽章及「其下方区域」（含徽章右侧那一列空当）。
@@ -143,76 +142,45 @@ export class Game {
     const hB = Math.min(T.TOOLS_BTN.y - T.TOOLS_BTN.r - 4, charB + 10)
     this.petHandleRect = { l: hL, t: hT, r: hR, b: hB }
     const w = hR - hL
-    const h = hB - hT
+    const hh = hB - hT
 
-    // 底层：原生拖拽层（仅在 pet-hit 隐藏时暴露给 OS 接管移窗）
-    const handle = document.createElement('div')
-    handle.id = 'pet-handle'
-    handle.style.position = 'absolute'
-    handle.style.left = `${hL}px`
-    handle.style.top = `${hT}px`
-    handle.style.width = `${w}px`
-    handle.style.height = `${h}px`
-    handle.style.setProperty('-webkit-app-region', 'drag')
-    handle.style.cursor = 'grab'
-    ;(document.getElementById('stage') as HTMLElement).appendChild(handle)
-    this.petHandle = handle
-
-    // 顶层：无拖拽透明热区（接钓鱼点击）
     const hit = document.createElement('div')
     hit.id = 'pet-hit'
     hit.style.position = 'absolute'
     hit.style.left = `${hL}px`
     hit.style.top = `${hT}px`
     hit.style.width = `${w}px`
-    hit.style.height = `${h}px`
-    hit.style.setProperty('-webkit-app-region', 'no-drag')
-    hit.style.cursor = 'pointer'
+    hit.style.height = `${hh}px`
+    hit.style.cursor = 'grab'
     hit.style.touchAction = 'none'
     ;(document.getElementById('stage') as HTMLElement).appendChild(hit)
     this.petHit = hit
 
-    // 身体区手势：点按/按住 = 钓鱼；按住并拖动 = 移窗。
-    const showHit = () => {
-      // 仅在层本应可见（空闲且无弹窗）时才显回，避免钓鱼/弹窗期间误显热区
-      if (this.petHit && this.petLayersVisible) this.petHit.style.display = ''
-    }
-    const hideHit = () => {
-      if (this.petHit) this.petHit.style.display = 'none'
-    }
+    // 身体区手势：按下/移动/松开 全部推进 gesture 状态机，按返回动作执行副作用。
     hit.addEventListener('pointerdown', (e: PointerEvent) => {
-      e.preventDefault()
-      this.input.beginBodyHoldFromClient(e.clientX, e.clientY)
       if (e.button !== 0) return
-      showHit() // 确保可见（上一次拖拽结束的兜底恢复）
-      this.petPressActive = true
-      this.petMoveDetected = false
-      this.petDownX = e.clientX
-      this.petDownY = e.clientY
+      e.preventDefault()
+      const r = stepGesture(this.gesture, { kind: 'down', x: e.clientX, y: e.clientY }, this.dragThreshold)
+      if (r.type === 'fish-start') this.input.beginBodyHoldFromClient(e.clientX, e.clientY)
     })
-    // 拖拽判定：位移超 5px → 取消钓鱼并露出底层 drag 层，交由 OS 原生拖动窗口
-    const onPetMove = (e: PointerEvent) => {
-      if (!this.petPressActive || this.petMoveDetected) return
-      const dx = e.clientX - this.petDownX
-      const dy = e.clientY - this.petDownY
-      if (dx * dx + dy * dy > 25) {
-        this.petMoveDetected = true
+    window.addEventListener('pointermove', (e: PointerEvent) => {
+      const r = stepGesture(this.gesture, { kind: 'move', x: e.clientX, y: e.clientY }, this.dragThreshold)
+      if (r.type === 'none' || r.type === 'fish-start' || r.type === 'reset') return
+      if (r.type === 'begin-drag') {
+        // 越过阈值：取消本次钓鱼，转入拖窗
         this.input.cancelHeld()
         this.controller.abort()
-        hideHit()
+        if (this.petHit) this.petHit.style.cursor = 'grabbing'
       }
+      this.bridge?.drag(r.dx, r.dy)
+    })
+    const endBody = () => {
+      stepGesture(this.gesture, { kind: 'up' }, this.dragThreshold)
+      if (this.petHit) this.petHit.style.cursor = 'grab'
+      // r.type === 'reset'：钓鱼的"松开抛竿"由 Input.window pointerup（endPress）负责，这里无需额外处理
     }
-    const onPetUp = () => {
-      this.petPressActive = false
-      this.petMoveDetected = false
-      showHit()
-    }
-    hit.addEventListener('pointermove', onPetMove)
-    window.addEventListener('pointerup', onPetUp)
-    window.addEventListener('pointercancel', onPetUp)
-    // 兜底：原生拖拽结束时 OS 可能吞掉 pointerup，导致 pet-hit 一直隐藏；
-    // 任意处按下都尝试显回 pet-hit（仅在层本应可见时才生效），保证下次点身体能钓鱼。
-    window.addEventListener('pointerdown', () => showHit())
+    window.addEventListener('pointerup', endBody)
+    window.addEventListener('pointercancel', endBody)
 
     // 右下角工具按钮：点击弹出 设置 / 音效 / 退出
     const t = T.TOOLS_BTN
@@ -300,7 +268,7 @@ export class Game {
     this.updateClickThrough()
     this.updatePetLayers()
 
-    // 光标：钓鱼热区显示 pointer（可点击钓鱼），外圈拖窗框显示 grab（拖动窗口）
+    // 光标：身体交互层（#pet-hit）本身显示 grab/grabbing，窗体其余区域显示 pointer 暗示可点击钓鱼
     this.canvas.style.cursor = 'pointer'
   }
 
@@ -433,16 +401,17 @@ export class Game {
   }
 
   /**
-   * 同步 pet 交互层（#pet-handle）显隐：
+   * 同步 pet 交互层（#pet-hit）显隐：
    *  仅当「空闲态 且 无弹窗」时显示——此时身体区既要接钓鱼点击、又要接拖窗手势；
-   *  弹窗打开或钓鱼进行中则隐藏，避免透明 drag 层盖住菜单、或误把钓鱼按键当成拖窗。
+   *  弹窗打开或钓鱼进行中则隐藏，避免透明层盖住菜单、或误把钓鱼按键当成拖窗。
+   *  拖窗（手动 IPC）不依赖此层隐藏/显示——拖拽期间状态仍是 idle，层会保持可见，
+   *  手势状态机在 move 超阈值时直接走 bridge.drag，不会因为层被隐藏而失效。
    */
   private updatePetLayers(): void {
     const show = this.controller.stateName === 'idle' && !this.anyOverlayOpen()
     if (show === this.petLayersVisible) return
     this.petLayersVisible = show
     const d = show ? '' : 'none'
-    if (this.petHandle) this.petHandle.style.display = d
     if (this.petHit) this.petHit.style.display = d
   }
 

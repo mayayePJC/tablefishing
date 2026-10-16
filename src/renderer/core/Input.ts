@@ -134,12 +134,9 @@ export class Input {
   }
 
   /**
-   * 人物身体区域的按下入口：开始一次"钓鱼按住"，但**不调用 preventDefault**。
-   * 原因：身体区域是 -webkit-app-region:drag（原生拖窗），若这里 preventDefault 会
-   * 阻止操作系统接管"按住拖动=移动窗口"。由此实现「点一下=钓鱼」「按住拖动=移窗」并存：
-   *  - 仅点按（几乎不动）→ 正常落到钓鱼流程（蓄力/收线）；
-   *  - 按住并拖动 → Game 侧侦测到位移超阈值会 cancelHeld + controller.abort 取消钓鱼，
-   *    同时 OS 原生拖拽接管窗口移动（合成器移动，顺滑无重影）。
+   * 人物身体区域的按下入口：开始一次"钓鱼按住"。
+   * 拖窗由 Game 侧手势状态机判定（位移超阈值 → cancelHeld + controller.abort + 经 IPC
+   * 调主进程 setPosition 移窗），本函数只负责正常起始钓鱼蓄力，不干扰拖窗逻辑。
    * 参数为屏幕(client)坐标，内部换算成画布坐标。
    */
   beginBodyHoldFromClient(clientX: number, clientY: number): void {
