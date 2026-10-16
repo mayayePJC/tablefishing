@@ -54,9 +54,12 @@ export class Game {
   private fishPicker: HTMLElement | null = null
   private fishGrid: HTMLElement | null = null
   private fishIcons: Record<string, string> = {}
-  /** 人物交互层（app-region:drag）：覆盖人物本体 + 等级徽章及其下方区域。
-   *  由 OS 合成器移动窗口（顺滑无重影）。点按=钓鱼，按住拖动=移窗，二者并存。 */
+  /** 原生拖拽底层（app-region:drag）：覆盖人物本体 + 等级徽章及下方区域。
+   *  仅在"按住拖动"时（pet-hit 被隐藏露出它）由 OS 合成器移动窗口，顺滑无重影。 */
   private petHandle: HTMLElement | null = null
+  /** 无拖拽透明顶层（app-region:no-drag）：覆盖同一身体区，接收点按/按住 → 钓鱼（蓄力/收线）。
+   *  拖拽判定（位移超阈值）时被临时隐藏，露出底层 drag 层交由 OS 原生拖动窗口。 */
+  private petHit: HTMLElement | null = null
   /** 人物交互区矩形（窗口坐标，= 点击穿透判定区，也是钓鱼/拖窗命中区） */
   private petHandleRect = { l: 0, t: 0, r: 0, b: 0 }
   /** 混合手势状态：身体上"点一下钓 / 按住拖"的判定 */
@@ -114,11 +117,13 @@ export class Game {
     this.bridge = bridge
 
     // 人物区交互：同一块区域既「点一下钓鱼」又「按住拖动移窗」，二者并存、互不打架。
-    //   实现：该层用原生 -webkit-app-region:drag —— 由操作系统合成器移动窗口，顺滑无重影。
-    //   - 点按（几乎不动）：pointerdown 落到 Input.beginBodyHoldFromClient 开始钓鱼（蓄力/收线），
-    //     OS 因未达到拖拽阈值而不会移动窗口，松手即完成抛竿 / 收线。
-    //   - 按住并拖动：Game 在 window 级 pointermove 里判定位移超阈值（5px）→ cancelHeld +
-    //     controller.abort 取消本次钓鱼，OS 原生拖拽随即接管移动窗口。
+    //   设计：两层叠加在同一身体区——
+    //    · 底层 pet-handle = app-region:drag（OS 合成器移窗，顺滑无重影）；
+    //    · 顶层 pet-hit   = app-region:no-drag（透明），接收点按/按住 → 钓鱼（蓄力/收线）。
+    //   关键点：Electron 的 app-region:drag 元素会吞掉 pointerdown，JS 收不到 → 钓鱼起不来。
+    //   所以钓鱼必须走顶层 no-drag 的 pet-hit。而"按住拖动"在 pet-hit 上侦测到位移超阈值时，
+    //   把 pet-hit 临时隐藏（display:none）→ 露出底层 drag 层 → 此刻 OS 原生拖拽接管移动窗口；
+    //   松手（或任何按下）再把 pet-hit 显回来。这样既保留"按住蓄力"又不重影。
     //   点击穿透：仅当指针落在「人物交互区 或 工具按钮」时才恢复可交互，其余区域穿透到下方工作窗口。
     // 几何以常量推导，保证与 PetView 实际绘制的人物 / 等级徽章位置一致：
     //   人物：以 (playerX - CAT_DW/2, playerFootY - CAT_DH) 为左上角。
@@ -137,32 +142,55 @@ export class Game {
     const hR = badgeR + 2
     const hB = Math.min(T.TOOLS_BTN.y - T.TOOLS_BTN.r - 4, charB + 10)
     this.petHandleRect = { l: hL, t: hT, r: hR, b: hB }
+    const w = hR - hL
+    const h = hB - hT
 
+    // 底层：原生拖拽层（仅在 pet-hit 隐藏时暴露给 OS 接管移窗）
     const handle = document.createElement('div')
     handle.id = 'pet-handle'
     handle.style.position = 'absolute'
     handle.style.left = `${hL}px`
     handle.style.top = `${hT}px`
-    handle.style.width = `${hR - hL}px`
-    handle.style.height = `${hB - hT}px`
+    handle.style.width = `${w}px`
+    handle.style.height = `${h}px`
     handle.style.setProperty('-webkit-app-region', 'drag')
     handle.style.cursor = 'grab'
-    handle.style.touchAction = 'none'
     ;(document.getElementById('stage') as HTMLElement).appendChild(handle)
     this.petHandle = handle
-    // 点按/按住人物 = 钓鱼（蓄力/收线）；不 preventDefault，放原生拖窗手势一马。
-    handle.addEventListener('pointerdown', (e: PointerEvent) => {
+
+    // 顶层：无拖拽透明热区（接钓鱼点击）
+    const hit = document.createElement('div')
+    hit.id = 'pet-hit'
+    hit.style.position = 'absolute'
+    hit.style.left = `${hL}px`
+    hit.style.top = `${hT}px`
+    hit.style.width = `${w}px`
+    hit.style.height = `${h}px`
+    hit.style.setProperty('-webkit-app-region', 'no-drag')
+    hit.style.cursor = 'pointer'
+    hit.style.touchAction = 'none'
+    ;(document.getElementById('stage') as HTMLElement).appendChild(hit)
+    this.petHit = hit
+
+    // 身体区手势：点按/按住 = 钓鱼；按住并拖动 = 移窗。
+    const showHit = () => {
+      // 仅在层本应可见（空闲且无弹窗）时才显回，避免钓鱼/弹窗期间误显热区
+      if (this.petHit && this.petLayersVisible) this.petHit.style.display = ''
+    }
+    const hideHit = () => {
+      if (this.petHit) this.petHit.style.display = 'none'
+    }
+    hit.addEventListener('pointerdown', (e: PointerEvent) => {
+      e.preventDefault()
       this.input.beginBodyHoldFromClient(e.clientX, e.clientY)
       if (e.button !== 0) return
+      showHit() // 确保可见（上一次拖拽结束的兜底恢复）
       this.petPressActive = true
       this.petMoveDetected = false
       this.petDownX = e.clientX
       this.petDownY = e.clientY
     })
-
-    // 身体区混合手势：在 window 级监听位移，超阈值即判定为"拖动移窗"并取消钓鱼。
-    //  - 仅点按（不动）：不会触发，钓鱼照常进行；松手完成抛竿/收线。
-    //  - 按住拖动：首次超阈值即 cancelHeld + abort 取消钓鱼，OS 原生拖拽接管移动窗口。
+    // 拖拽判定：位移超 5px → 取消钓鱼并露出底层 drag 层，交由 OS 原生拖动窗口
     const onPetMove = (e: PointerEvent) => {
       if (!this.petPressActive || this.petMoveDetected) return
       const dx = e.clientX - this.petDownX
@@ -171,15 +199,20 @@ export class Game {
         this.petMoveDetected = true
         this.input.cancelHeld()
         this.controller.abort()
+        hideHit()
       }
     }
     const onPetUp = () => {
       this.petPressActive = false
       this.petMoveDetected = false
+      showHit()
     }
-    window.addEventListener('pointermove', onPetMove)
+    hit.addEventListener('pointermove', onPetMove)
     window.addEventListener('pointerup', onPetUp)
     window.addEventListener('pointercancel', onPetUp)
+    // 兜底：原生拖拽结束时 OS 可能吞掉 pointerup，导致 pet-hit 一直隐藏；
+    // 任意处按下都尝试显回 pet-hit（仅在层本应可见时才生效），保证下次点身体能钓鱼。
+    window.addEventListener('pointerdown', () => showHit())
 
     // 右下角工具按钮：点击弹出 设置 / 音效 / 退出
     const t = T.TOOLS_BTN
@@ -410,6 +443,7 @@ export class Game {
     this.petLayersVisible = show
     const d = show ? '' : 'none'
     if (this.petHandle) this.petHandle.style.display = d
+    if (this.petHit) this.petHit.style.display = d
   }
 
   /**
