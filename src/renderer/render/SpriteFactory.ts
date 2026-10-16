@@ -55,10 +55,46 @@ export const ROD_TIP_CAT: Record<PlayerPose, [number, number]> = {
   show: [20, 17]
 }
 
+/** 蛙渔夫钓竿尖端偏移：左蹼握竿，竿尖偏左上 */
+export const ROD_TIP_FROG: Record<PlayerPose, [number, number]> = {
+  idle0: [2, 5],
+  idle1: [2, 5],
+  cast0: [4, 11],
+  cast1: [4, 7],
+  cast2: [2, 4],
+  reel: [4, 10],
+  show: [22, 17]
+}
+
+/** 企鹅钓手钓竿尖端偏移：左鳍握竿，竿尖偏左上 */
+export const ROD_TIP_PENGUIN: Record<PlayerPose, [number, number]> = {
+  idle0: [3, 5],
+  idle1: [3, 5],
+  cast0: [4, 12],
+  cast1: [4, 8],
+  cast2: [3, 4],
+  reel: [4, 11],
+  show: [20, 16]
+}
+
+/** 星纹小巫师钓竿尖端偏移：左袖握竿，竿尖偏左上 */
+export const ROD_TIP_WIZARD: Record<PlayerPose, [number, number]> = {
+  idle0: [3, 6],
+  idle1: [3, 6],
+  cast0: [4, 14],
+  cast1: [4, 10],
+  cast2: [3, 5],
+  reel: [4, 13],
+  show: [21, 15]
+}
+
 /** 按形象取 rod tip 映射表 */
 export const ROD_TIPS: Record<CharacterSkin, Record<PlayerPose, [number, number]>> = {
   farmer: ROD_TIP_FARMER,
-  cat: ROD_TIP_CAT
+  cat: ROD_TIP_CAT,
+  frog: ROD_TIP_FROG,
+  penguin: ROD_TIP_PENGUIN,
+  wizard: ROD_TIP_WIZARD
 }
 
 /** 兼容旧导入：默认指向农夫 */
@@ -278,6 +314,315 @@ function drawCatCharacter(pose: PlayerPose): HTMLCanvasElement {
     // 钓竿
     const tip = ROD_TIP_CAT[pose]
     rodLine(pc, 12, 17, tip[0], tip[1])
+  }
+
+  return pc.bake()
+}
+
+// 蛙渔夫配色：绿皮 + 护目镜 + 棕马甲 + 小木桶
+const FROG = '#57a64b'
+const FROG_D = '#3f7d38'
+const FROG_L = '#6fbf56'
+const FROG_BELLY = '#f2e4b8'
+const GOGGLE = '#b88848'
+const GOGGLE_LENS = '#e8a04a'
+const VEST = '#a8763e'
+const VEST_D = '#7d5228'
+const BUCKET = '#7a5230'
+const BUCKET_L = '#96683f'
+
+/** 程序化生成「蛙渔夫」：宽体无颈、护目镜鼓眼、背小木桶，左蹼握竿面朝左 */
+function drawFrogCharacter(pose: PlayerPose): HTMLCanvasElement {
+  const pc = new PixelCanvas(24, 40)
+  const isShow = pose === 'show'
+  const blink = pose === 'idle1'
+
+  // —— 宽蹼脚（身体最后方）——
+  blk(pc, 4, 34, 6, 5, FROG)
+  blk(pc, 14, 34, 6, 5, FROG)
+  pc.rect(4, 38, 6, 1, FROG_D)
+  pc.rect(14, 38, 6, 1, FROG_D)
+  // 蹼趾分隔
+  pc.rect(6, 36, 1, 2, FROG_D)
+  pc.rect(8, 36, 1, 2, FROG_D)
+  pc.rect(16, 36, 1, 2, FROG_D)
+  pc.rect(18, 36, 1, 2, FROG_D)
+
+  // —— 背后小木桶（右肩后）——
+  blk(pc, 20, 15, 3, 6, BUCKET)
+  pc.rect(20, 15, 3, 1, BUCKET_L) // 桶口沿
+  pc.rect(20, 20, 3, 1, BUCKET_L) // 桶底沿
+  pc.px(19, 14, BUCKET) // 提手
+  pc.px(23, 14, BUCKET)
+
+  // —— 躯干（宽体，与头连成一片）——
+  blk(pc, 4, 18, 16, 14, FROG)
+  pc.rect(5, 18, 14, 1, FROG_L) // 背高光
+  pc.rect(4, 30, 16, 1, FROG_D) // 底部阴影
+  // 米色肚皮
+  pc.rect(8, 21, 8, 8, FROG_BELLY)
+  // 棕色马甲（两侧 + 口袋）
+  pc.rect(5, 19, 2, 10, VEST)
+  pc.rect(17, 19, 2, 10, VEST)
+  pc.rect(5, 19, 2, 1, VEST_D)
+  pc.rect(17, 19, 2, 1, VEST_D)
+  pc.rect(5, 23, 2, 2, VEST_D)
+  pc.rect(17, 23, 2, 2, VEST_D)
+
+  // —— 头（宽头，护目镜双眼鼓出）——
+  blk(pc, 4, 9, 16, 10, FROG)
+  pc.rect(5, 9, 14, 1, FROG_L)
+  blk(pc, 4, 7, 5, 5, GOGGLE)
+  blk(pc, 15, 7, 5, 5, GOGGLE)
+  pc.ellipse(6.5, 9.5, 1.7, 1.7, GOGGLE_LENS)
+  pc.ellipse(17.5, 9.5, 1.7, 1.7, GOGGLE_LENS)
+  pc.px(5, 8, '#f4d8a0') // 镜片高光
+  pc.px(16, 8, '#f4d8a0')
+  if (blink) {
+    pc.rect(5, 9, 3, 1, OUT)
+    pc.rect(16, 9, 3, 1, OUT)
+  } else {
+    pc.px(6, 9, OUT) // 瞳孔（朝左看水）
+    pc.px(17, 9, OUT)
+  }
+  // 微笑
+  pc.rect(9, 15, 6, 1, FROG_D)
+  pc.px(8, 14, FROG_D)
+  pc.px(15, 14, FROG_D)
+
+  // —— 手臂 + 钓竿（画在身体之上）——
+  if (isShow) {
+    // 双蹼举起展示鱼
+    blk(pc, 3, 6, 2, 7, FROG)
+    blk(pc, 19, 6, 2, 7, FROG)
+    pc.rect(3, 12, 2, 2, FROG_L)
+    pc.rect(19, 12, 2, 2, FROG_L)
+    // 手中鱼儿
+    pc.ellipse(12, 4, 3.4, 2, '#6fb0d0')
+    pc.ellipse(12, 4, 2.2, 1.3, '#bfe6f2')
+    pc.triangle(15, 4, 12, 2.5, 12, 5.5, '#4a93b0')
+    pc.px(10, 3, INK)
+    // 竿斜靠身侧
+    rodLine(pc, 22, 33, 21, 22)
+  } else {
+    // 右蹼自然下垂
+    blk(pc, 21, 22, 2, 5, FROG)
+    pc.rect(21, 26, 2, 2, FROG_L)
+    // 左蹼举起握竿
+    blk(pc, 2, 13, 2, 6, FROG)
+    pc.rect(2, 12, 2, 2, FROG_L)
+    const tip = ROD_TIP_FROG[pose]
+    rodLine(pc, 3, 13, tip[0], tip[1])
+  }
+
+  return pc.bake()
+}
+
+// 企鹅钓手配色：深灰背 + 白肚 + 橙喙 + 红围巾 + 斜挎包
+const PENG_B = '#2b2f3a'
+const PENG_BL = '#3d4250'
+const PENG_W = '#f5f5f0'
+const PENG_WD = '#d8d8d0'
+const BEAK = '#e8a04a'
+const BEAK_D = '#c07828'
+const SCARF = '#c0453a'
+const SCARF_D = '#8f2e26'
+const BAG = '#7a5230'
+const BAG_D = '#5d3d22'
+
+/** 程序化生成「企鹅钓手」：圆滚滚身材、红围巾、斜挎包，左鳍握竿面朝左 */
+function drawPenguinCharacter(pose: PlayerPose): HTMLCanvasElement {
+  const pc = new PixelCanvas(24, 40)
+  const isShow = pose === 'show'
+  const blink = pose === 'idle1'
+
+  // —— 蹼脚 + 短腿（身体最后方）——
+  blk(pc, 7, 36, 4, 3, PENG_B)
+  blk(pc, 13, 36, 4, 3, PENG_B)
+  pc.rect(7, 38, 4, 1, '#1c1f26')
+  pc.rect(13, 38, 4, 1, '#1c1f26')
+  pc.rect(8, 33, 3, 3, PENG_B)
+  pc.rect(13, 33, 3, 3, PENG_B)
+
+  // —— 躯干（圆滚滚）——
+  blk(pc, 6, 15, 12, 18, PENG_B)
+  pc.rect(7, 15, 10, 1, PENG_BL) // 背高光
+  pc.rect(6, 31, 12, 1, '#1c1f26') // 底部阴影
+  // 白肚
+  pc.rect(9, 19, 6, 12, PENG_W)
+  pc.rect(9, 30, 6, 1, PENG_WD)
+
+  // —— 斜挎包（带 + 包身）——
+  const strap = [[7, 17], [8, 18], [9, 19], [10, 20], [11, 21], [12, 22], [13, 23], [14, 24]]
+  for (const [sx, sy] of strap) pc.px(sx, sy, BAG_D)
+  blk(pc, 14, 24, 4, 4, BAG)
+  pc.rect(14, 24, 4, 1, BUCKET_L) // 包盖
+  pc.px(16, 25, GOLD) // 搭扣
+
+  // —— 头（圆脸 + 白脸盘）——
+  blk(pc, 8, 6, 8, 10, PENG_B)
+  pc.rect(9, 6, 6, 1, PENG_BL)
+  pc.rect(9, 9, 6, 6, PENG_W)
+  if (blink) {
+    pc.rect(9, 10, 2, 1, OUT)
+    pc.rect(13, 10, 2, 1, OUT)
+  } else {
+    pc.px(10, 10, OUT)
+    pc.px(13, 10, OUT)
+  }
+  // 橙喙
+  pc.triangle(10, 11, 14, 11, 12, 14, BEAK)
+  pc.px(12, 13, BEAK_D)
+
+  // —— 红围巾（头身 junction）——
+  pc.rect(6, 15, 12, 2, SCARF)
+  pc.rect(6, 15, 12, 1, '#d65a4a') // 围巾高光
+  pc.px(5, 16, SCARF_D) // 结
+
+  // —— 鳍臂 + 钓竿（画在身体之上）——
+  if (isShow) {
+    // 双鳍举起展示鱼
+    blk(pc, 3, 6, 2, 7, PENG_B)
+    blk(pc, 19, 6, 2, 7, PENG_B)
+    pc.rect(3, 12, 2, 2, PENG_BL)
+    pc.rect(19, 12, 2, 2, PENG_BL)
+    // 围巾飘带
+    pc.rect(1, 13, 4, 2, SCARF)
+    pc.rect(1, 14, 2, 1, SCARF_D)
+    // 手中鱼儿
+    pc.ellipse(12, 3, 3.4, 2, '#6fb0d0')
+    pc.ellipse(12, 3, 2.2, 1.3, '#bfe6f2')
+    pc.triangle(15, 3, 12, 1.5, 12, 4.5, '#4a93b0')
+    pc.px(10, 2, INK)
+    // 竿斜靠身侧
+    rodLine(pc, 21, 33, 22, 21)
+  } else {
+    // 右鳍自然下垂
+    blk(pc, 19, 18, 2, 8, PENG_B)
+    pc.rect(19, 24, 2, 2, PENG_BL)
+    // 左鳍举起握竿
+    blk(pc, 2, 12, 2, 7, PENG_B)
+    pc.rect(2, 11, 2, 2, PENG_BL)
+    // 围巾飘带（画在鳍臂之前，避免被鳍挡住）
+    pc.rect(1, 13, 4, 2, SCARF)
+    pc.rect(1, 14, 2, 1, SCARF_D)
+    const tip = ROD_TIP_PENGUIN[pose]
+    rodLine(pc, 3, 13, tip[0], tip[1])
+  }
+
+  return pc.bake()
+}
+
+// 星纹小巫师配色：紫长袍 + 金饰 + 深青尖帽 + 星纹
+const ROBE = '#5a4a8a'
+const ROBE_D = '#453a6e'
+const ROBE_L = '#6f5aa3'
+const HAT = '#3d3a6e'
+const HAT_L = '#524a8a'
+const STAR_C = '#f4e4b8'
+const WBOOT = '#5d3d22'
+const WBOOT_D = '#3f2a18'
+const GOLD = '#e8c53a'
+
+/** 程序化生成「星纹小巫师」：三段堆叠长袍、星纹尖帽、金框眼镜，左袖握竿面朝左 */
+function drawWizardCharacter(pose: PlayerPose): HTMLCanvasElement {
+  const pc = new PixelCanvas(24, 40)
+  const isShow = pose === 'show'
+  const blink = pose === 'idle1'
+
+  // —— 靴尖（袍摆下方）——
+  blk(pc, 7, 35, 4, 4, WBOOT)
+  blk(pc, 13, 35, 4, 4, WBOOT)
+  pc.rect(7, 38, 4, 1, WBOOT_D)
+  pc.rect(13, 38, 4, 1, WBOOT_D)
+  pc.px(6, 38, WBOOT) // 左脚尖外挑
+  pc.px(17, 38, WBOOT) // 右脚尖外挑
+
+  // —— 三段堆叠长袍（下摆 -> 中段 -> 肩）——
+  blk(pc, 5, 26, 14, 8, ROBE)
+  pc.rect(6, 26, 12, 1, ROBE_L) // 褶皱高光
+  pc.rect(5, 33, 14, 1, ROBE_D) // 下摆阴影
+  blk(pc, 6, 21, 12, 6, ROBE)
+  pc.rect(7, 26, 10, 1, ROBE_D)
+  blk(pc, 8, 16, 8, 6, ROBE)
+  pc.rect(9, 16, 6, 1, ROBE_L) // 肩高光
+  // 金色前襟
+  pc.rect(11, 16, 2, 18, GOLD)
+  // 袍上星纹（plus 小星）
+  const robeStar = (sx: number, sy: number): void => {
+    pc.px(sx, sy, STAR_C)
+    pc.px(sx, sy - 1, STAR_C)
+    pc.px(sx, sy + 1, STAR_C)
+    pc.px(sx - 1, sy, STAR_C)
+    pc.px(sx + 1, sy, STAR_C)
+  }
+  robeStar(7, 23)
+  robeStar(16, 29)
+
+  // —— 头（皮肤 + 金框眼镜 + 白胡）——
+  blk(pc, 8, 7, 8, 8, PAL.skin)
+  pc.rect(8, 7, 8, 1, PAL.skinShade)
+  // 金框圆眼镜（3×3 环 ×2 + 鼻梁）
+  const lens = (lx: number): void => {
+    pc.rect(lx, 10, 3, 1, GOLD)
+    pc.rect(lx, 12, 3, 1, GOLD)
+    pc.px(lx, 11, GOLD)
+    pc.px(lx + 2, 11, GOLD)
+  }
+  lens(8)
+  lens(13)
+  pc.rect(11, 11, 2, 1, GOLD) // 鼻梁
+  if (blink) {
+    pc.rect(8, 11, 3, 1, GOLD)
+    pc.rect(13, 11, 3, 1, GOLD)
+  } else {
+    pc.px(9, 11, '#dff0f6') // 镜片
+    pc.px(14, 11, '#dff0f6')
+    pc.px(9, 11, OUT) // 瞳孔
+    pc.px(14, 11, OUT)
+  }
+  // 白胡
+  pc.rect(9, 13, 6, 2, '#e8e8e8')
+  pc.rect(9, 14, 6, 1, '#c8c8c8')
+  // 领口（画在头之后，避开帽檐遮挡）
+  pc.rect(9, 15, 6, 2, GOLD)
+
+  // —— 星纹尖帽（帽檐 + 锥身 + 尖端星）——
+  blk(pc, 5, 7, 14, 3, HAT)
+  pc.rect(5, 7, 14, 1, HAT_L) // 帽檐高光
+  pc.triangle(11, 0, 6, 9, 17, 9, OUT) // 暗描边锥
+  pc.triangle(11, 1, 7, 9, 16, 9, HAT) // 帽身
+  pc.px(11, 0, STAR_C) // 尖端星
+  pc.px(10, 0, STAR_C)
+  pc.px(10, 4, STAR_C) // 帽身星
+  pc.px(12, 6, STAR_C)
+  pc.rect(7, 8, 10, 1, GOLD) // 金环带
+
+  // —— 袖臂 + 钓竿（画在身体之上）——
+  if (isShow) {
+    // 双袖举起展示鱼（鱼在脸前方，避开尖帽）
+    blk(pc, 6, 7, 2, 6, ROBE)
+    blk(pc, 16, 7, 2, 6, ROBE)
+    pc.rect(6, 5, 2, 2, PAL.skin)
+    pc.rect(16, 5, 2, 2, PAL.skin)
+    // 手中鱼儿
+    pc.ellipse(11, 3, 4.2, 2.1, '#6fb0d0')
+    pc.ellipse(11, 3, 2.8, 1.3, '#bfe6f2')
+    pc.triangle(15, 3, 11, 1.4, 11, 4.6, '#4a93b0')
+    pc.px(9, 2, INK)
+    // 竿斜靠身侧
+    rodLine(pc, 20, 33, 21, 20)
+  } else {
+    // 右袖自然下垂
+    blk(pc, 17, 14, 2, 7, ROBE)
+    pc.rect(17, 18, 2, 2, GOLD) // 袖口金环
+    pc.rect(17, 20, 2, 2, PAL.skin) // 手
+    // 左袖举起握竿
+    blk(pc, 5, 14, 2, 7, ROBE)
+    pc.rect(5, 18, 2, 2, GOLD)
+    pc.rect(5, 12, 2, 2, PAL.skin) // 握竿手
+    const tip = ROD_TIP_WIZARD[pose]
+    rodLine(pc, 6, 13, tip[0], tip[1])
   }
 
   return pc.bake()
@@ -538,7 +883,12 @@ export class SpriteFactory {
   }
 
   static build(fishDefs: FishDef[], skin: CharacterSkin = 'farmer'): SpriteSet {
-    const drawChar = skin === 'cat' ? drawCatCharacter : drawPlayer
+    const drawChar =
+      skin === 'cat' ? drawCatCharacter :
+      skin === 'frog' ? drawFrogCharacter :
+      skin === 'penguin' ? drawPenguinCharacter :
+      skin === 'wizard' ? drawWizardCharacter :
+      drawPlayer
     return {
       playerIdle: [drawChar('idle0'), drawChar('idle1')],
       playerCast: [drawChar('cast0'), drawChar('cast1'), drawChar('cast2')],

@@ -49,7 +49,8 @@ export interface CatchResult {
   unlockedRod?: string
 }
 
-export type CharacterSkin = 'farmer' | 'cat'
+/** 可选人物形象：farmer/cat 为初始形象，frog/penguin/wizard 为新增 trio */
+export type CharacterSkin = 'farmer' | 'cat' | 'frog' | 'penguin' | 'wizard'
 
 /** 钓鱼竿持有与装备状态 */
 export interface RodSave {
@@ -64,7 +65,7 @@ export interface SaveData {
   version: 1
   /** 累计总经验 */
   totalXp: number
-  /** 当前人物形象：farmer = 默认星露谷农夫，cat = 上传的猫将形象 */
+  /** 当前人物形象：farmer = 星露农夫，cat = 猫将，frog/penguin/wizard = 新增 trio */
   character?: CharacterSkin
   /** 钓鱼竿持有/装备状态 */
   rods?: RodSave

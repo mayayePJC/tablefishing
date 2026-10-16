@@ -16,7 +16,9 @@
 - **点击区域**：顶部 30px 空白带不触发钓鱼；人物身体=拖动；人物身体小点击=钓鱼；窗口其余区域=钓鱼；工具按钮=打开菜单。
 - **文字可读性**：透明背景上的中文用带深色描边的矢量字；米色结算面板用 `PetView.rtext()`（整数对齐、固定行高、1px 深描边），保证清晰整齐、不歪扭。
 - **交付形式**：默认输出两种产物：`dist/FishingCat.exe`（便携单文件，约 106 MB）和 `dist/FishingCat-Setup-${version}.exe`（NSIS 安装包，约 107 MB）。安装包更推荐给朋友：安装到磁盘后开机无需自解压，启动更快。重新打包前若 exe 被占用，先结束运行中的实例。
-- **图标**：自定义星露谷风图标位于 `build/icon.ico`，由 `scripts/makeicon.cjs` 生成（@napi-rs/canvas 绘制，含 16/32/48/64/128/256 多尺寸）。修改图标请编辑 `scripts/makeicon.cjs` 后重跑。
+- **图标**：像素风图标位于 `build/icon.ico`（32×32 网格：深青底 + 暗框 + 切角 + 阶梯水波 + 奶油像素鱼 + J 形银钩钓线 + 气泡，主体邻接检测自动描边），由 `scripts/makeicon.cjs` 生成（@napi-rs/canvas，最近邻缩放 [256,128,64,48,32,16] 组装 ICO，另出 build/logo.png 512px）。**注意 scripts/make-icon.mjs 是旧版遗留无人引用，改图标只编辑 makeicon.cjs。**
+- **角色形象系统**：`CharacterSkin` 共 5 种（farmer/cat/frog/penguin/wizard）；数据源 `shared/characters.ts` 的 `CHARACTER_LIST`（图鉴选择框自动烘焙预览，加项即上图鉴，弹窗为 3 列紧凑布局）；精灵绘制在 `render/SpriteFactory.ts`（每形象一个 draw 函数，24×40 网格、7 姿态、暗描边、持竿面朝左）+ `ROD_TIPS` 竿尖偏移表 + `build()` 路由。新增形象只需改这 4 处（types 联合类型、CHARACTER_LIST、draw 函数、ROD_TIP 映射）。
+- **冒烟测试**：本机 agent 会话环境带 `ELECTRON_RUN_AS_NODE=1`，会让 Electron 二进制当纯 Node 跑（dev 报 electron.app undefined / 打包版静默秒退 exit 0）。测试打包产物必须 `env -u ELECTRON_RUN_AS_NODE` 前缀。
 - **开机自启**：由工具菜单「开机自启：开/关」控制，持久化在 `SaveStore.autostart`，通过 `fishingCodex.setAutostart` IPC 调用主进程 `app.setLoginItemSettings` 写入/移除 Windows 注册表启动项。
 - **启动优化**：`BrowserWindow` 设 `show:false`，`ready-to-show` 后 `win.show()`，消除白屏；`app.commandLine.appendSwitch('disable-features','CalculateNativeWinOcclusion')` 减少透明置顶窗的遮挡判定延迟；`app.requestSingleInstanceLock()` 防止多开。
 

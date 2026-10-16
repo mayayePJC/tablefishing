@@ -94,25 +94,25 @@
     #char-picker.visible { display: flex; }
     #char-picker .panel {
       background: rgba(8, 20, 28, 0.96); border: 2px solid #2a6b8f; border-radius: 10px;
-      padding: 14px 16px; color: #e8f6f9; width: 284px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+      padding: 14px 16px; color: #e8f6f9; width: 320px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
       font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
     }
     #char-picker h3 { margin: 0 0 6px; font-size: 14px; line-height: 1.35; color: #6fc3df; }
-    #char-picker .sub { font-size: 11px; line-height: 1.45; color: #9fc4d6; margin: 0 0 12px; }
-    .char-grid { display: flex; gap: 14px; justify-content: center; align-items: flex-start; flex-wrap: wrap; }
+    #char-picker .sub { font-size: 11px; line-height: 1.45; color: #9fc4d6; margin: 0 0 10px; }
+    .char-grid { display: flex; gap: 12px; justify-content: center; align-items: flex-start; flex-wrap: wrap; }
     .char-card {
       position: relative;
-      width: 116px; box-sizing: border-box;
+      width: 88px; box-sizing: border-box;
       background: rgba(18, 56, 79, 0.55); border: 2px solid #2a6b8f; border-radius: 8px;
-      padding: 8px 8px 10px; text-align: center; cursor: pointer; transition: all .12s;
-      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      padding: 6px 6px 8px; text-align: center; cursor: pointer; transition: all .12s;
+      display: flex; flex-direction: column; align-items: center; gap: 3px;
     }
     .char-card:hover { background: rgba(26, 79, 110, 0.85); }
     .char-card.selected { border-color: #6fc3df; box-shadow: 0 0 0 2px rgba(111, 195, 223, 0.55); }
-    .char-card img { width: 56px; height: 84px; image-rendering: pixelated; display: block;
+    .char-card img { width: 44px; height: 66px; image-rendering: pixelated; display: block;
       background: rgba(0, 0, 0, 0.25); border-radius: 4px; }
-    .char-card .nm { font-size: 12px; color: #e8f6f9; line-height: 1.2; }
-    .char-card .ds { font-size: 10px; color: #9fc4d6; line-height: 1.3; word-break: break-word; }
+    .char-card .nm { font-size: 11px; color: #e8f6f9; line-height: 1.2; }
+    .char-card .ds { font-size: 9px; color: #9fc4d6; line-height: 1.3; word-break: break-word; }
     .char-card .sl {
       position: absolute; top: 4px; right: 6px; font-size: 10px; color: #ffd86b;
       background: rgba(8, 20, 28, 0.7); border-radius: 4px; padding: 1px 4px;

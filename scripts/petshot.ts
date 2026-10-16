@@ -210,5 +210,109 @@ function renderAll(skin: CharacterSkin) {
   }
 }
 
+// 12) 新形象七姿态对比表：缩放 4x 最近邻排到一张图，检查剪影/描边/持竿
+function renderPoseSheet(skin: CharacterSkin) {
+  const sprites = SpriteFactory.build(FISH_TABLE, skin)
+  const scale = 4
+  const cellW = 24 * scale
+  const cellH = 40 * scale
+  const cols = 4
+  const rows = 2
+  const pad = 10
+  const titleH = 30
+  const labelH = 20
+  const cv = realCreate(cols * cellW + pad * 2, titleH + pad + rows * cellH + labelH + pad)
+  const ctx = cv.getContext('2d')
+  ctx.imageSmoothingEnabled = false
+  ctx.fillStyle = '#10181f'
+  ctx.fillRect(0, 0, cv.width, cv.height)
+  ctx.fillStyle = '#8fc4d4'
+  ctx.font = 'bold 18px sans-serif'
+  ctx.fillText(`poses · ${skin}`, pad, 22)
+  const poses: Array<[string, HTMLCanvasElement]> = [
+    ['idle0', sprites.playerIdle[0]],
+    ['idle1', sprites.playerIdle[1]],
+    ['cast0', sprites.playerCast[0]],
+    ['cast1', sprites.playerCast[1]],
+    ['cast2', sprites.playerCast[2]],
+    ['reel', sprites.playerReel],
+    ['show', sprites.playerShow]
+  ]
+  poses.forEach(([label, img], i) => {
+    const cx = pad + (i % cols) * cellW
+    const cy = titleH + pad + Math.floor(i / cols) * cellH
+    // 棋盘格衬底，凸显透明像素与暗描边
+    const check = 8
+    for (let y = 0; y < cellH; y += check) {
+      for (let x = 0; x < cellW; x += check) {
+        const on = ((x / check) | 0) % 2 === ((y / check) | 0) % 2
+        ctx.fillStyle = on ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)'
+        ctx.fillRect(cx + x, cy + y, check, check)
+      }
+    }
+    ctx.drawImage(img, cx, cy, cellW, cellH)
+    ctx.fillStyle = '#9fc4d6'
+    ctx.font = '12px monospace'
+    ctx.fillText(label, cx + 2, cy + cellH + 14)
+  })
+  const out = `scripts/poses_${skin}.png`
+  require('fs').writeFileSync(out, cv.toBuffer('image/png'))
+  console.log('wrote', out, `(${cv.width}x${cv.height})`)
+}
+
 renderAll('farmer')
 renderAll('cat')
+renderPoseSheet('frog')
+renderPoseSheet('penguin')
+renderPoseSheet('wizard')
+
+// 13) 新形象关键场景：待机 / 远抛钓线 / 咬钩 / 举鱼结算（验证竿尖世界坐标与窗口协调）
+function renderKeyScenes(skin: CharacterSkin) {
+  const sprites = SpriteFactory.build(FISH_TABLE, skin)
+  const view = new PetView(sprites, skin)
+
+  render(`key_idle_${skin}`, baseScene(), view, sprites)
+
+  {
+    const s = baseScene()
+    s.playerPose = 'reel'
+    s.bobber = { x: T.CAST_X_MIN, y: T.CAST_Y_MIN, shake: 0 }
+    s.lineVisible = true
+    s.splash = { x: T.CAST_X_MIN, y: T.CAST_Y_MIN, frame: 1 }
+    render(`key_castfar_${skin}`, s, view, sprites)
+  }
+
+  {
+    const s = baseScene()
+    s.playerPose = 'reel'
+    s.bobber = { x: 128, y: 322, shake: 0.95 }
+    s.splash = { x: 128, y: 322, frame: 1 }
+    s.hud.exclaim = true
+    s.hud.exclaimX = 128
+    s.hud.exclaimY = 396 - 14
+    render(`key_bite_${skin}`, s, view, sprites)
+  }
+
+  {
+    const s = baseScene()
+    s.playerPose = 'show'
+    const fish = FISH_TABLE.find((f) => f.id === 'sardine') ?? FISH_TABLE[0]
+    s.result = {
+      kind: 'fish',
+      perfect: true,
+      treasure: true,
+      maxCast: false,
+      xp: 26,
+      leveledUp: 0,
+      fishName: fish.name,
+      fishIcon: sprites.fish[fish.id][1],
+      size: 18,
+      quality: 'gold'
+    }
+    render(`key_catch_${skin}`, s, view, sprites)
+  }
+}
+
+renderKeyScenes('frog')
+renderKeyScenes('penguin')
+renderKeyScenes('wizard')
