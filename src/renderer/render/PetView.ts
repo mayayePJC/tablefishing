@@ -146,23 +146,31 @@ export class PetView {
     ctx.lineTo(W, dead)
     ctx.stroke()
 
-    // 钓鱼区：绿色虚线框（窗口下半部，除顶部无效区）
+    // 钓鱼区：绿色虚线框（人物本体 + 等级徽章及下方区域，与 Game 中 #pet-hit 一致）
+    const catL = T.PLAYER_X - CAT_DW / 2
+    const catR = T.PLAYER_X + CAT_DW / 2
+    const badgeR = Math.min(T.VIEW_W - 1, T.PLAYER_X + CAT_DW / 2 + 4 + 68)
+    const hitL = catL - 6
+    const hitT = T.PLAYER_FOOT_Y - CAT_DH - 6
+    const hitR = badgeR + 2
+    const hitB = T.PLAYER_FOOT_Y + 6
     ctx.strokeStyle = 'rgba(90,210,120,0.85)'
     ctx.lineWidth = 2
     ctx.setLineDash([6, 4])
-    ctx.strokeRect(3, dead + 3, W - 6, H - dead - 6)
+    ctx.strokeRect(hitL, hitT, hitR - hitL, hitB - hitT)
     ctx.setLineDash([])
 
-    // 拖拽/轻点区：蓝色实框 + 淡蓝填充（与 Game 中 #drag-handle 的矩形一致）
-    const hl = T.PLAYER_X - CAT_DW / 2 - 14
-    const ht = T.PLAYER_FOOT_Y - CAT_DH - 14
-    const hw = CAT_DW + 28
-    const hh = CAT_DH + 24
+    // 拖拽/轻点区：蓝色实框（钓鱼区外扩一圈细拖窗框，与 Game 中 #pet-handle 一致）
+    const MM = 20
+    const hl = Math.max(0, hitL - MM)
+    const ht = Math.max(0, hitT - MM)
+    const hr = Math.min(T.VIEW_W, hitR + MM)
+    const hb = Math.min(T.TOOLS_BTN.y - T.TOOLS_BTN.r - 4, hitB + 4)
     ctx.fillStyle = 'rgba(80,150,230,0.16)'
-    ctx.fillRect(hl, ht, hw, hh)
+    ctx.fillRect(hl, ht, hr - hl, hb - ht)
     ctx.strokeStyle = 'rgba(120,180,255,0.95)'
     ctx.lineWidth = 2
-    ctx.strokeRect(hl, ht, hw, hh)
+    ctx.strokeRect(hl, ht, hr - hl, hb - ht)
 
     // 工具菜单命中区：黄色圈（比视觉圈略大，表示实际命中半径）
     const t = T.TOOLS_BTN

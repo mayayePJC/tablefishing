@@ -58,6 +58,10 @@ export class Game {
   private petHandle: HTMLElement | null = null
   /** 拖拽层之上的 no-drag 透明热区：让"点按/按住人物"正常落到 Input（钓鱼可蓄力/收线） */
   private petHit: HTMLElement | null = null
+  /** 拖拽层（= 点击穿透判定区）矩形（窗口坐标，由人物/徽章几何推导） */
+  private petHandleRect = { l: 0, t: 0, r: 0, b: 0 }
+  /** 钓鱼热区矩形（窗口坐标，= 人物本体 + 等级徽章及其下方区域） */
+  private petHitRect = { l: 0, t: 0, r: 0, b: 0 }
 
   /** 主进程桥（拖拽/退出/自启/点击穿透） */
   private bridge: PetBridge | undefined
@@ -108,47 +112,59 @@ export class Game {
     this.bridge = bridge
 
     // 人物区交互（拖拽 + 钓鱼，二者兼顾且不重影）：
-    //  - 用原生 -webkit-app-region:drag 实现拖窗 —— 由操作系统合成器移动窗口，顺滑无重影
-    //    （手动 bridge.drag 走 setPosition 在透明置顶窗上会留拖影，已弃用）。
-    //  - 但 app-region:drag 会吞掉 mousedown，导致无法在人物身上蓄力/收线。解决：在拖拽层之上
-    //    再放一个 app-region:no-drag 的透明热区（pet-hit），让"点按/按住人物"正常落到 Input
-    //    （蓄力、收线都能用），而热区四周的"边框"仍是 drag 区 → 从边缘拖动窗口。
-    //  这样：人物正方形中间=钓鱼（点/按住），四周=拖窗，全程无重影。
-    const SIDE = 160
-    const cx = T.PLAYER_X
-    const cy = T.PLAYER_FOOT_Y - (T.PLAYER_H * T.PLAYER_SCALE) / 2
-    const sqL = cx - SIDE / 2
-    const sqT = cy - SIDE / 2
-    // 右下角工具按钮(TOOLS_BTN)落在正方形右下角，拖拽层不能盖住它，否则点工具会变拖窗
-    const hL = sqL
-    const hT = sqT
-    const hW = T.TOOLS_BTN.x - 14 - sqL
-    const hH = T.TOOLS_BTN.y - 14 - sqT
+    //  - 用原生 -webkit-app-region:drag 实现拖窗 —— 由操作系统合成器移动窗口，顺滑无重影。
+    //  - 在拖拽层之上再放一个 app-region:no-drag 的透明热区（pet-hit），覆盖「人物本体 + 等级徽章
+    //    及其下方区域」——在这里点按/按住 = 钓鱼（蓄力/收线），其余四周的细边框 = 拖窗。
+    //  - 点击穿透：仅当指针落在「pet-handle 覆盖区（含钓鱼热区 + 外圈拖窗细框）或工具按钮」时才
+    //    恢复可交互，其余区域点击直接穿透到下方工作窗口。
+    // 几何以常量推导，保证与 PetView 实际绘制的人物 / 等级徽章位置一致：
+    //   人物：drawCat 以 (playerX - CAT_DW/2, playerFootY - CAT_DH) 为左上角。
+    //   徽章：drawLevelBadge 以 (playerX + CAT_DW/2 + 4, playerFootY - CAT_DH + 4) 为左上角、宽 68。
+    const CAT_DW = T.PLAYER_W * T.PLAYER_SCALE
+    const CAT_DH = T.PLAYER_H * T.PLAYER_SCALE
+    const charL = T.PLAYER_X - CAT_DW / 2
+    const charT = T.PLAYER_FOOT_Y - CAT_DH
+    const charR = T.PLAYER_X + CAT_DW / 2
+    const charB = T.PLAYER_FOOT_Y
+    const badgeR = Math.min(T.VIEW_W - 1, T.PLAYER_X + CAT_DW / 2 + 4 + 68)
+    // 钓鱼热区 = 人物本体 + 等级徽章及「其下方区域」（含徽章右侧那一列空当）
+    const hitL = charL - 6
+    const hitT = charT - 6
+    const hitR = badgeR + 2
+    const hitB = charB + 6
+    // 拖窗 + 点击穿透判定区 = 钓鱼热区外扩一圈细边框（右侧贴窗口边、底部留出工具按钮空间）
+    const MM = 20
+    const hL = Math.max(0, hitL - MM)
+    const hT = Math.max(0, hitT - MM)
+    const hR = Math.min(T.VIEW_W, hitR + MM)
+    const hB = Math.min(T.TOOLS_BTN.y - T.TOOLS_BTN.r - 4, hitB + 4)
+    this.petHandleRect = { l: hL, t: hT, r: hR, b: hB }
+    this.petHitRect = { l: hitL, t: hitT, r: hitR, b: hitB }
+
     const handle = document.createElement('div')
     handle.id = 'pet-handle'
     handle.style.position = 'absolute'
     handle.style.left = `${hL}px`
     handle.style.top = `${hT}px`
-    handle.style.width = `${hW}px`
-    handle.style.height = `${hH}px`
+    handle.style.width = `${hR - hL}px`
+    handle.style.height = `${hB - hT}px`
     handle.style.setProperty('-webkit-app-region', 'drag')
     handle.style.cursor = 'grab'
     ;(document.getElementById('stage') as HTMLElement).appendChild(handle)
     this.petHandle = handle
 
-    // 钓鱼热区：拖拽层之上的 no-drag 透明层，覆盖人物本体区域，接收点按/按住 → 钓鱼
-    const pad = 38
+    // 钓鱼热区：拖拽层之上的 no-drag 透明层，覆盖人物本体 + 等级徽章及下方，接收点按/按住 → 钓鱼
     const hit = document.createElement('div')
     hit.id = 'pet-hit'
     hit.style.position = 'absolute'
-    hit.style.left = `${hL + pad}px`
-    hit.style.top = `${hT + pad}px`
-    hit.style.width = `${hW - pad * 2}px`
-    hit.style.height = `${hH - pad * 2}px`
+    hit.style.left = `${hitL}px`
+    hit.style.top = `${hitT}px`
+    hit.style.width = `${hitR - hitL}px`
+    hit.style.height = `${hitB - hitT}px`
     hit.style.setProperty('-webkit-app-region', 'no-drag')
-    hit.style.cursor = 'grab'
+    hit.style.cursor = 'pointer'
     hit.style.touchAction = 'none'
-    handle.appendChild(hit)
+    ;(document.getElementById('stage') as HTMLElement).appendChild(hit)
     this.petHit = hit
     // 点按/按住人物 = 钓鱼：事件落到 Input（蓄力/收线），由 canvas 接收指针
     hit.addEventListener('pointerdown', (e: PointerEvent) => this.input.handlePointerDown(e))
@@ -239,12 +255,8 @@ export class Game {
     this.updateClickThrough()
     this.updatePetLayers()
 
-    // 光标：人物热区（空闲态）显示手型 grab，其余区域 pointer（暗示可点击钓鱼）
-    const overPet =
-      this.ctPtrX >= 0 && this.ctPtrY >= 0 && this.inPetBody(this.ctPtrX, this.ctPtrY)
-    const idle = this.controller.stateName === 'idle'
+    // 光标：钓鱼热区显示 pointer（可点击钓鱼），外圈拖窗框显示 grab（拖动窗口）
     this.canvas.style.cursor = 'pointer'
-    if (this.petHit) this.petHit.style.cursor = overPet && idle ? 'grab' : 'pointer'
   }
 
   /** 构建工具菜单（DOM 覆盖层）：
@@ -390,17 +402,13 @@ export class Game {
   }
 
   /**
-   * 人物可交互命中框：以人物为中心的近似正方形（边长 SIDE），覆盖人物本体、
-   * 右上角的等级徽章以及其下方区域——即用户要求的"连带等级条下方"的整块可点击区。
-   * 工具按钮的小圆区被排除（否则会同时触发拖窗与菜单）。
+   * 人物可交互命中框（= 点击穿透判定区）：以 petHandleRect 为准 —— 覆盖「人物本体 +
+   * 等级徽章及其下方区域」外扩一圈细拖窗框的整块区域。落在此区域内 → 窗口恢复可交互
+   * （否则点击穿透到下方工作窗口）。工具按钮小圆区被排除（避免与菜单冲突）。
    */
   private inPetBody(x: number, y: number): boolean {
-    const SIDE = 160
-    const cx = T.PLAYER_X
-    const cy = T.PLAYER_FOOT_Y - (T.PLAYER_H * T.PLAYER_SCALE) / 2 // 人物竖直中点
-    const l = cx - SIDE / 2
-    const t = cy - SIDE / 2
-    if (x < l || x > l + SIDE || y < t || y > t + SIDE) return false
+    const r = this.petHandleRect
+    if (x < r.l || x > r.r || y < r.t || y > r.b) return false
     if (this.input.toolsHitTest && this.input.toolsHitTest(x, y)) return false
     return true
   }
