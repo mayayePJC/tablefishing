@@ -61,6 +61,8 @@ export class Game {
 
   /** 主进程桥（拖拽/退出/自启/点击穿透） */
   private bridge: PetBridge | undefined
+  /** 当前 pet 拖拽/钓鱼层是否可见（仅在「空闲且无弹窗」时显示；弹窗/钓鱼中隐藏，避免拖拽层吞掉菜单点击） */
+  private petLayersVisible = true
 
   // ---------- 点击穿透（缩小"可点击区域"，避免干扰工作） ----------
   /** 当前已生效的 OS 侧穿透状态（true=窗口对鼠标透明）。仅在翻转时通知主进程，避免每帧 IPC 抖动。
@@ -235,6 +237,7 @@ export class Game {
       !!this.fishPicker?.classList.contains('visible')
     this.forceInteractive = active || overlayOpen
     this.updateClickThrough()
+    this.updatePetLayers()
 
     // 光标：人物热区（空闲态）显示手型 grab，其余区域 pointer（暗示可点击钓鱼）
     const overPet =
@@ -351,12 +354,39 @@ export class Game {
   }
 
   /**
-   * 任意弹窗打开时，刷新点击穿透判定（弹窗期间 forceInteractive 已自动置真，窗口整窗可交互，
-   * 关闭按钮/点外边都能正常点）。原本压在弹窗关闭按钮上的「拖拽手柄」已移除（改为窗口级监听），
-   * 不再需要切 pointer-events。
+   * 任意弹窗打开/关闭时调用：刷新点击穿透判定，并同步 pet 拖拽/钓鱼层显隐。
+   * 弹窗期间 forceInteractive 已自动置真，窗口整窗可交互；同时隐藏 pet 层，
+   * 否则其覆盖在工具菜单/子菜单区域之上的透明 drag 层会吞掉菜单点击（这正是
+   * "点击设置/设置面板都点不动" 的根因）。
    */
   private updateDragWhileOverlay(): void {
     this.updateClickThrough()
+    this.updatePetLayers()
+  }
+
+  /** 是否任意弹窗（工具菜单/玩法说明/各图鉴）已打开 */
+  private anyOverlayOpen(): boolean {
+    return (
+      this.toolsOpen ||
+      !!this.helpOverlay?.classList.contains('visible') ||
+      !!this.charPicker?.classList.contains('visible') ||
+      !!this.rodPicker?.classList.contains('visible') ||
+      !!this.fishPicker?.classList.contains('visible')
+    )
+  }
+
+  /**
+   * 同步 pet 拖拽/钓鱼层（#pet-handle / #pet-hit）显隐：
+   *  仅当「空闲态 且 无弹窗」时显示——此时拖窗（边缘）+ 钓鱼（中心）才需要它们；
+   *  弹窗打开或钓鱼进行中则隐藏，避免透明 drag 层盖住菜单、或误把钓鱼按键当成拖窗。
+   */
+  private updatePetLayers(): void {
+    const show = this.controller.stateName === 'idle' && !this.anyOverlayOpen()
+    if (show === this.petLayersVisible) return
+    this.petLayersVisible = show
+    const d = show ? '' : 'none'
+    if (this.petHandle) this.petHandle.style.display = d
+    if (this.petHit) this.petHit.style.display = d
   }
 
   /**
