@@ -1,0 +1,19 @@
+# 依赖
+node_modules/
+
+# 构建产出（由 npm run dist 生成，体积大，不入库；可走 GitHub Releases 分发）
+dist/
+out/
+
+# 缓存
+.vite/
+*.log
+
+# 系统 / 编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# 本地数据（运行时生成）
+.workspace/

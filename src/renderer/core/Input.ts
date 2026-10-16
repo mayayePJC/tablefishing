@@ -1,0 +1,168 @@
+/**
+ * 输入抽象：把鼠标左键 / C 键 / 空格统一成「使用工具」的按住、按下沿、松开沿。
+ *
+ * 交互模型（清晰划分，避免"不知道点哪"）：
+ *  - 人物身体：由 Game 里的原生 -webkit-app-region:drag 手柄负责"拖动窗口"；
+ *    手柄上额外挂了 click 监听，未移动的小点击补一次钓鱼触发（simulateTap）。
+ *  - 右下角工具按钮：点击弹出 设置/音效/退出（toolsHitTest / onTools）。
+ *  - 窗口其余区域：按住/点击 = 钓鱼（蓄力 / 收线 / 继续）。
+ *  - 顶部空白带：不触发钓鱼，避免点到窗口外缘误钓。
+ */
+export class Input {
+  private sources = new Set<string>()
+  private pressEdges = 0
+  private releaseEdges = 0
+
+  /** 功能键回调 */
+  onMuteToggle: (() => void) | null = null
+  onAnyKey: (() => void) | null = null
+
+  /** 工具按钮命中（右下角汉堡菜单） */
+  toolsHitTest: ((x: number, y: number) => boolean) | null = null
+  /** 点击工具按钮回调（切换菜单） */
+  onTools: (() => void) | null = null
+
+  private el: HTMLElement
+
+  // 指针位置（画布坐标），用于悬停高亮
+  private ptrX = -1
+  private ptrY = -1
+
+  // 工具按钮：需"完整点击"（按下+松开都在按钮上）才触发，避免误触
+  private toolsArmed = false
+  // 失焦/被遮盖时间戳：其后极短时间内忽略工具点击（仅挡掉焦点刚回到窗口时那一帧的误点）。
+  // 注意：冷却过长是"点了菜单没反应"的头号元凶，所以压到很小（300ms ≈ 18 帧），
+  // 既不影响截图后快速点菜单，也不会让正常点击被吞掉。
+  private lastBlurAt = -1e9
+  private lastHideAt = -1e9
+  private readonly toolsCooldownMs = 300
+
+  /** 顶部空白带：低于此 y 不触发钓鱼（窗口上缘是透明空区） */
+  private readonly deadTopY = 30
+
+  constructor(el: HTMLElement) {
+    this.el = el
+
+    const toCanvas = (e: { clientX: number; clientY: number }) => {
+      const rect = el.getBoundingClientRect()
+      return [e.clientX - rect.left, e.clientY - rect.top] as const
+    }
+
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault()
+      this.onAnyKey?.()
+      if (e.button !== 0) return
+      const [cx, cy] = toCanvas(e)
+      this.ptrX = cx
+      this.ptrY = cy
+      // 工具按钮：先"按下待确认"，松手仍在按钮上且不在冷静期才弹出
+      if (this.toolsHitTest && this.toolsHitTest(cx, cy)) {
+        this.toolsArmed = true
+        return
+      }
+      // 顶部空白带不钓鱼
+      if (cy < this.deadTopY) return
+      this.addSource('mouse')
+    })
+
+    window.addEventListener('pointermove', (e) => {
+      const [cx, cy] = toCanvas(e)
+      this.ptrX = cx
+      this.ptrY = cy
+    })
+
+    const endPress = (e: PointerEvent) => {
+      if (e.button !== 0) return
+      const [cx, cy] = toCanvas(e)
+      this.ptrX = cx
+      this.ptrY = cy
+      if (this.toolsArmed) {
+        this.toolsArmed = false
+        const cooled = performance.now() - Math.max(this.lastBlurAt, this.lastHideAt) > this.toolsCooldownMs
+        if (cooled && this.toolsHitTest && this.toolsHitTest(cx, cy)) this.onTools?.()
+        return
+      }
+      this.removeSource('mouse')
+    }
+    window.addEventListener('pointerup', endPress)
+    window.addEventListener('pointercancel', () => {
+      this.toolsArmed = false
+    })
+    el.addEventListener('contextmenu', (e) => e.preventDefault())
+
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'KeyC' || e.code === 'Space') {
+        e.preventDefault()
+        if (!e.repeat) this.addSource(e.code)
+      } else if (e.code === 'KeyM') {
+        this.onMuteToggle?.()
+      }
+      this.onAnyKey?.()
+    })
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'KeyC' || e.code === 'Space') this.removeSource(e.code)
+    })
+    // 失焦时释放所有按键，并记录失焦时间用于工具冷静期
+    window.addEventListener('blur', () => {
+      this.sources.clear()
+      this.toolsArmed = false
+      this.ptrX = -1
+      this.ptrY = -1
+      this.lastBlurAt = performance.now()
+    })
+    // 页面被遮盖/最小化（如全屏截图覆盖层接管）也计入冷静期
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.lastHideAt = performance.now()
+    })
+  }
+
+  /** 指针当前画布坐标（用于悬停高亮；-1 表示未知） */
+  get pointerX(): number {
+    return this.ptrX
+  }
+  get pointerY(): number {
+    return this.ptrY
+  }
+
+  /**
+   * 身体快速点击补一次钓鱼触发：原生拖拽手柄会吞掉 mousedown，
+   * 但"未移动的小点击"仍会冒泡出 click 事件——这里补一个瞬时的按下+松开沿，
+   * 让点在人物身上也能开始钓鱼（同时不干扰拖动）。
+   */
+  simulateTap(): void {
+    this.addSource('mouse')
+    this.removeSource('mouse')
+  }
+
+  private addSource(id: string): void {
+    if (this.sources.size === 0) this.pressEdges++
+    this.sources.add(id)
+  }
+
+  private removeSource(id: string): void {
+    if (this.sources.delete(id) && this.sources.size === 0) this.releaseEdges++
+  }
+
+  /** 当前是否按住 */
+  get held(): boolean {
+    return this.sources.size > 0
+  }
+
+  /** 消费一次按下沿（一个逻辑步内可能多次） */
+  consumePress(): boolean {
+    if (this.pressEdges > 0) {
+      this.pressEdges--
+      return true
+    }
+    return false
+  }
+
+  /** 消费一次松开沿 */
+  consumeRelease(): boolean {
+    if (this.releaseEdges > 0) {
+      this.releaseEdges--
+      return true
+    }
+    return false
+  }
+}

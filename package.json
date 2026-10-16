@@ -1,0 +1,58 @@
+{
+  "name": "fishing-codex",
+  "version": "0.1.0",
+  "private": true,
+  "description": "星露谷风格钓鱼复刻 · 透明可拖拽钓鱼桌宠",
+  "author": "Fishing Codex",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit",
+    "package": "electron-vite build && electron-builder --dir",
+    "predist": "node scripts/kill-before-build.cjs",
+    "dist": "electron-vite build && electron-builder"
+  },
+  "build": {
+    "appId": "com.fishingcodex.pet",
+    "productName": "Fishing Cat 钓鱼桌宠",
+    "icon": "build/icon.ico",
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "electronDownload": {
+      "isVerifyChecksum": false
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "artifactName": "FishingCat.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Fishing Cat 钓鱼桌宠",
+      "menuCategory": true,
+      "artifactName": "FishingCat-Setup-${version}.${ext}"
+    }
+  },
+  "devDependencies": {
+    "@napi-rs/canvas": "^1.0.11",
+    "@types/node": "^26.6.5",
+    "electron": "^44.7.2",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.7"
+  }
+}
