@@ -126,9 +126,8 @@ export class PetView {
   /**
    * 点击区域可视化（底层）：用半透明填充 + 彩色边框标出四大区域。
    *  - 顶部红色带：无效区（窗口上缘，避免误触）
-   *  - 绿色虚线框：钓鱼区（点按任意处 = 钓鱼）
-   *  - 蓝色框：拖拽/轻点区（恰好覆盖原生拖拽手柄，与 Game 里的 #drag-handle 一致）
    *  - 黄色圈：工具菜单命中范围
+   *  - 蓝色框：人物交互区（既「点一下=钓鱼」又「按住拖动=移窗」，覆盖 Game 的 #pet-handle）
    */
   private drawClickMapBack(ctx: CanvasRenderingContext2D): void {
     const W = T.VIEW_W
@@ -146,31 +145,20 @@ export class PetView {
     ctx.lineTo(W, dead)
     ctx.stroke()
 
-    // 钓鱼区：绿色虚线框（人物本体 + 等级徽章及下方区域，与 Game 中 #pet-hit 一致）
+    // 人物交互区：蓝色实框（人物本体 + 等级徽章及下方，与 Game 中 #pet-handle 一致）。
+    // 同一块区域：点按=钓鱼，按住拖动=移窗。
     const catL = T.PLAYER_X - CAT_DW / 2
     const catR = T.PLAYER_X + CAT_DW / 2
     const badgeR = Math.min(T.VIEW_W - 1, T.PLAYER_X + CAT_DW / 2 + 4 + 68)
     const hitL = catL - 6
     const hitT = T.PLAYER_FOOT_Y - CAT_DH - 6
     const hitR = badgeR + 2
-    const hitB = T.PLAYER_FOOT_Y + 6
-    ctx.strokeStyle = 'rgba(90,210,120,0.85)'
-    ctx.lineWidth = 2
-    ctx.setLineDash([6, 4])
-    ctx.strokeRect(hitL, hitT, hitR - hitL, hitB - hitT)
-    ctx.setLineDash([])
-
-    // 拖拽/轻点区：蓝色实框（钓鱼区外扩一圈细拖窗框，与 Game 中 #pet-handle 一致）
-    const MM = 20
-    const hl = Math.max(0, hitL - MM)
-    const ht = Math.max(0, hitT - MM)
-    const hr = Math.min(T.VIEW_W, hitR + MM)
-    const hb = Math.min(T.TOOLS_BTN.y - T.TOOLS_BTN.r - 4, hitB + 4)
+    const hitB = Math.min(T.TOOLS_BTN.y - T.TOOLS_BTN.r - 4, T.PLAYER_FOOT_Y + 10)
     ctx.fillStyle = 'rgba(80,150,230,0.16)'
-    ctx.fillRect(hl, ht, hr - hl, hb - ht)
+    ctx.fillRect(hitL, hitT, hitR - hitL, hitB - hitT)
     ctx.strokeStyle = 'rgba(120,180,255,0.95)'
     ctx.lineWidth = 2
-    ctx.strokeRect(hl, ht, hr - hl, hb - ht)
+    ctx.strokeRect(hitL, hitT, hitR - hitL, hitB - hitT)
 
     // 工具菜单命中区：黄色圈（比视觉圈略大，表示实际命中半径）
     const t = T.TOOLS_BTN

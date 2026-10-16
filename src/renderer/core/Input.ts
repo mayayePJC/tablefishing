@@ -134,6 +134,30 @@ export class Input {
   }
 
   /**
+   * 人物身体区域的按下入口：开始一次"钓鱼按住"，但**不调用 preventDefault**。
+   * 原因：身体区域是 -webkit-app-region:drag（原生拖窗），若这里 preventDefault 会
+   * 阻止操作系统接管"按住拖动=移动窗口"。由此实现「点一下=钓鱼」「按住拖动=移窗」并存：
+   *  - 仅点按（几乎不动）→ 正常落到钓鱼流程（蓄力/收线）；
+   *  - 按住并拖动 → Game 侧侦测到位移超阈值会 cancelHeld + controller.abort 取消钓鱼，
+   *    同时 OS 原生拖拽接管窗口移动（合成器移动，顺滑无重影）。
+   * 参数为屏幕(client)坐标，内部换算成画布坐标。
+   */
+  beginBodyHoldFromClient(clientX: number, clientY: number): void {
+    this.onAnyKey?.()
+    const [cx, cy] = this.toCanvas({ clientX, clientY })
+    this.ptrX = cx
+    this.ptrY = cy
+    // 工具按钮：先"按下待确认"
+    if (this.toolsHitTest && this.toolsHitTest(cx, cy)) {
+      this.toolsArmed = true
+      return
+    }
+    // 顶部空白带不钓鱼
+    if (cy < this.deadTopY) return
+    this.addSource('mouse')
+  }
+
+  /**
    * 撤销一个尚未松开的"鼠标按下"（用于人物区判定为拖拽窗口时，避免松手误触钓鱼）。
    * 只撤销由 mouse 源产生的按下：清除 held，并回退一次 press 沿计数，使控制器不会看到这次按下。
    */

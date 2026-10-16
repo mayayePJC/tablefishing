@@ -54,14 +54,16 @@ export class Game {
   private fishPicker: HTMLElement | null = null
   private fishGrid: HTMLElement | null = null
   private fishIcons: Record<string, string> = {}
-  /** 原生拖拽层（app-region:drag）：覆盖人物正方形，由 OS 合成器移动窗口，顺滑无重影 */
+  /** 人物交互层（app-region:drag）：覆盖人物本体 + 等级徽章及其下方区域。
+   *  由 OS 合成器移动窗口（顺滑无重影）。点按=钓鱼，按住拖动=移窗，二者并存。 */
   private petHandle: HTMLElement | null = null
-  /** 拖拽层之上的 no-drag 透明热区：让"点按/按住人物"正常落到 Input（钓鱼可蓄力/收线） */
-  private petHit: HTMLElement | null = null
-  /** 拖拽层（= 点击穿透判定区）矩形（窗口坐标，由人物/徽章几何推导） */
+  /** 人物交互区矩形（窗口坐标，= 点击穿透判定区，也是钓鱼/拖窗命中区） */
   private petHandleRect = { l: 0, t: 0, r: 0, b: 0 }
-  /** 钓鱼热区矩形（窗口坐标，= 人物本体 + 等级徽章及其下方区域） */
-  private petHitRect = { l: 0, t: 0, r: 0, b: 0 }
+  /** 混合手势状态：身体上"点一下钓 / 按住拖"的判定 */
+  private petPressActive = false // 当前是否在身体区按下了
+  private petMoveDetected = false // 本次按下是否已判定为"拖动"
+  private petDownX = 0 // 按下时的屏幕坐标，用于位移阈值判定
+  private petDownY = 0
 
   /** 主进程桥（拖拽/退出/自启/点击穿透） */
   private bridge: PetBridge | undefined
@@ -111,15 +113,16 @@ export class Game {
     const bridge = (window as unknown as { fishingCodex?: PetBridge }).fishingCodex
     this.bridge = bridge
 
-    // 人物区交互（拖拽 + 钓鱼，二者兼顾且不重影）：
-    //  - 用原生 -webkit-app-region:drag 实现拖窗 —— 由操作系统合成器移动窗口，顺滑无重影。
-    //  - 在拖拽层之上再放一个 app-region:no-drag 的透明热区（pet-hit），覆盖「人物本体 + 等级徽章
-    //    及其下方区域」——在这里点按/按住 = 钓鱼（蓄力/收线），其余四周的细边框 = 拖窗。
-    //  - 点击穿透：仅当指针落在「pet-handle 覆盖区（含钓鱼热区 + 外圈拖窗细框）或工具按钮」时才
-    //    恢复可交互，其余区域点击直接穿透到下方工作窗口。
+    // 人物区交互：同一块区域既「点一下钓鱼」又「按住拖动移窗」，二者并存、互不打架。
+    //   实现：该层用原生 -webkit-app-region:drag —— 由操作系统合成器移动窗口，顺滑无重影。
+    //   - 点按（几乎不动）：pointerdown 落到 Input.beginBodyHoldFromClient 开始钓鱼（蓄力/收线），
+    //     OS 因未达到拖拽阈值而不会移动窗口，松手即完成抛竿 / 收线。
+    //   - 按住并拖动：Game 在 window 级 pointermove 里判定位移超阈值（5px）→ cancelHeld +
+    //     controller.abort 取消本次钓鱼，OS 原生拖拽随即接管移动窗口。
+    //   点击穿透：仅当指针落在「人物交互区 或 工具按钮」时才恢复可交互，其余区域穿透到下方工作窗口。
     // 几何以常量推导，保证与 PetView 实际绘制的人物 / 等级徽章位置一致：
-    //   人物：drawCat 以 (playerX - CAT_DW/2, playerFootY - CAT_DH) 为左上角。
-    //   徽章：drawLevelBadge 以 (playerX + CAT_DW/2 + 4, playerFootY - CAT_DH + 4) 为左上角、宽 68。
+    //   人物：以 (playerX - CAT_DW/2, playerFootY - CAT_DH) 为左上角。
+    //   徽章：以 (playerX + CAT_DW/2 + 4, playerFootY - CAT_DH + 4) 为左上角、宽 68。
     const CAT_DW = T.PLAYER_W * T.PLAYER_SCALE
     const CAT_DH = T.PLAYER_H * T.PLAYER_SCALE
     const charL = T.PLAYER_X - CAT_DW / 2
@@ -127,19 +130,13 @@ export class Game {
     const charR = T.PLAYER_X + CAT_DW / 2
     const charB = T.PLAYER_FOOT_Y
     const badgeR = Math.min(T.VIEW_W - 1, T.PLAYER_X + CAT_DW / 2 + 4 + 68)
-    // 钓鱼热区 = 人物本体 + 等级徽章及「其下方区域」（含徽章右侧那一列空当）
-    const hitL = charL - 6
-    const hitT = charT - 6
-    const hitR = badgeR + 2
-    const hitB = charB + 6
-    // 拖窗 + 点击穿透判定区 = 钓鱼热区外扩一圈细边框（右侧贴窗口边、底部留出工具按钮空间）
-    const MM = 20
-    const hL = Math.max(0, hitL - MM)
-    const hT = Math.max(0, hitT - MM)
-    const hR = Math.min(T.VIEW_W, hitR + MM)
-    const hB = Math.min(T.TOOLS_BTN.y - T.TOOLS_BTN.r - 4, hitB + 4)
+    // 人物交互区 = 人物本体 + 等级徽章及「其下方区域」（含徽章右侧那一列空当）。
+    // 底部留白避免盖住右下角工具按钮（TOOLS_BTN 位于 x:318 y:368 r:12）。
+    const hL = charL - 6
+    const hT = charT - 6
+    const hR = badgeR + 2
+    const hB = Math.min(T.TOOLS_BTN.y - T.TOOLS_BTN.r - 4, charB + 10)
     this.petHandleRect = { l: hL, t: hT, r: hR, b: hB }
-    this.petHitRect = { l: hitL, t: hitT, r: hitR, b: hitB }
 
     const handle = document.createElement('div')
     handle.id = 'pet-handle'
@@ -150,24 +147,39 @@ export class Game {
     handle.style.height = `${hB - hT}px`
     handle.style.setProperty('-webkit-app-region', 'drag')
     handle.style.cursor = 'grab'
+    handle.style.touchAction = 'none'
     ;(document.getElementById('stage') as HTMLElement).appendChild(handle)
     this.petHandle = handle
+    // 点按/按住人物 = 钓鱼（蓄力/收线）；不 preventDefault，放原生拖窗手势一马。
+    handle.addEventListener('pointerdown', (e: PointerEvent) => {
+      this.input.beginBodyHoldFromClient(e.clientX, e.clientY)
+      if (e.button !== 0) return
+      this.petPressActive = true
+      this.petMoveDetected = false
+      this.petDownX = e.clientX
+      this.petDownY = e.clientY
+    })
 
-    // 钓鱼热区：拖拽层之上的 no-drag 透明层，覆盖人物本体 + 等级徽章及下方，接收点按/按住 → 钓鱼
-    const hit = document.createElement('div')
-    hit.id = 'pet-hit'
-    hit.style.position = 'absolute'
-    hit.style.left = `${hitL}px`
-    hit.style.top = `${hitT}px`
-    hit.style.width = `${hitR - hitL}px`
-    hit.style.height = `${hitB - hitT}px`
-    hit.style.setProperty('-webkit-app-region', 'no-drag')
-    hit.style.cursor = 'pointer'
-    hit.style.touchAction = 'none'
-    ;(document.getElementById('stage') as HTMLElement).appendChild(hit)
-    this.petHit = hit
-    // 点按/按住人物 = 钓鱼：事件落到 Input（蓄力/收线），由 canvas 接收指针
-    hit.addEventListener('pointerdown', (e: PointerEvent) => this.input.handlePointerDown(e))
+    // 身体区混合手势：在 window 级监听位移，超阈值即判定为"拖动移窗"并取消钓鱼。
+    //  - 仅点按（不动）：不会触发，钓鱼照常进行；松手完成抛竿/收线。
+    //  - 按住拖动：首次超阈值即 cancelHeld + abort 取消钓鱼，OS 原生拖拽接管移动窗口。
+    const onPetMove = (e: PointerEvent) => {
+      if (!this.petPressActive || this.petMoveDetected) return
+      const dx = e.clientX - this.petDownX
+      const dy = e.clientY - this.petDownY
+      if (dx * dx + dy * dy > 25) {
+        this.petMoveDetected = true
+        this.input.cancelHeld()
+        this.controller.abort()
+      }
+    }
+    const onPetUp = () => {
+      this.petPressActive = false
+      this.petMoveDetected = false
+    }
+    window.addEventListener('pointermove', onPetMove)
+    window.addEventListener('pointerup', onPetUp)
+    window.addEventListener('pointercancel', onPetUp)
 
     // 右下角工具按钮：点击弹出 设置 / 音效 / 退出
     const t = T.TOOLS_BTN
@@ -388,8 +400,8 @@ export class Game {
   }
 
   /**
-   * 同步 pet 拖拽/钓鱼层（#pet-handle / #pet-hit）显隐：
-   *  仅当「空闲态 且 无弹窗」时显示——此时拖窗（边缘）+ 钓鱼（中心）才需要它们；
+   * 同步 pet 交互层（#pet-handle）显隐：
+   *  仅当「空闲态 且 无弹窗」时显示——此时身体区既要接钓鱼点击、又要接拖窗手势；
    *  弹窗打开或钓鱼进行中则隐藏，避免透明 drag 层盖住菜单、或误把钓鱼按键当成拖窗。
    */
   private updatePetLayers(): void {
@@ -398,12 +410,11 @@ export class Game {
     this.petLayersVisible = show
     const d = show ? '' : 'none'
     if (this.petHandle) this.petHandle.style.display = d
-    if (this.petHit) this.petHit.style.display = d
   }
 
   /**
    * 人物可交互命中框（= 点击穿透判定区）：以 petHandleRect 为准 —— 覆盖「人物本体 +
-   * 等级徽章及其下方区域」外扩一圈细拖窗框的整块区域。落在此区域内 → 窗口恢复可交互
+   * 等级徽章及其下方区域」整块区域。落在此区域内 → 窗口恢复可交互
    * （否则点击穿透到下方工作窗口）。工具按钮小圆区被排除（避免与菜单冲突）。
    */
   private inPetBody(x: number, y: number): boolean {
