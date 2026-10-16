@@ -145,6 +145,20 @@ export class FishingController {
     this.ctx.forcedFishId = id
   }
 
+  /**
+   * 取消当前钓鱼手势（用于人物区拖拽窗口时）：复位到 idle，并清理蓄力/鱼/结算等临时态，
+   * 避免"拖窗松手"被误判成抛竿。仅在非 idle 时生效（idle 本身无需复位）。
+   */
+  abort(): void {
+    if (this.machine.name !== 'idle') {
+      this.ctx.castPower = 0
+      this.ctx.maxCast = false
+      this.ctx.fish = null
+      this.ctx.result = null
+      this.machine.transition('idle')
+    }
+  }
+
   /** 切换人物形象时同步更新竿尖偏移映射 */
   setRodTipMap(map: Record<PlayerPose, [number, number]>): void {
     this.rodTipMap = map

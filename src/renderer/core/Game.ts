@@ -45,7 +45,6 @@ export class Game {
   private toolsOpen = false
   private helpOverlay: HTMLElement | null = null
   private helpDialog: HTMLElement | null = null
-  private dragHandle: HTMLElement | null = null
   private charPicker: HTMLElement | null = null
   private charGrid: HTMLElement | null = null
   private charPreviews: Record<string, string> = {}
@@ -103,57 +102,53 @@ export class Game {
 
     const bridge = (window as unknown as { fishingCodex?: PetBridge }).fishingCodex
     this.bridge = bridge
-    // 人物区交互手柄：同时负责「拖拽窗口」与「轻点钓鱼」。
-    // 不用原生 -webkit-app-region:drag：它会吞掉 mousedown/click，在点击穿透
-    // （setIgnoreMouseEvents）下，身体点击常因窗口处于透明态而落空——这正是"点身体无效"的根因。
-    // 改为指针事件手动实现：按下后几乎不移动 = 轻点 → 钓鱼；移动超阈值 = 拖拽（bridge.drag 增量移窗）。
-    const dw = T.PLAYER_W * T.PLAYER_SCALE
-    const dh = T.PLAYER_H * T.PLAYER_SCALE
-    const handle = document.createElement('div')
-    handle.id = 'drag-handle'
-    handle.style.position = 'absolute'
-    handle.style.left = `${T.PLAYER_X - dw / 2 - 18}px`
-    handle.style.top = `${T.PLAYER_FOOT_Y - dh - 18}px`
-    handle.style.width = `${dw + 36}px`
-    handle.style.height = `${dh + 30}px`
-    handle.style.cursor = 'grab'
-    handle.style.touchAction = 'none'
-    ;(document.getElementById('stage') as HTMLElement).appendChild(handle)
-    this.dragHandle = handle
 
-    let dragPX = 0, dragPY = 0, dragActive = false, dragMoved = false
-    handle.addEventListener('pointerdown', (e: PointerEvent) => {
+    // 人物区交互：不再用单独的拖拽手柄层（那层会吞掉 mousedown，正是"点身体无效 / 不能蓄力"的根因）。
+    // 改为：整窗由 canvas 接收输入（Input 负责钓鱼的蓄力/收线），Game 只在窗口级监听里做两件事：
+    //  1) 仅当「空闲态」时点住人物热区并移动 → 判定为拖动窗口（bridge.drag 增量移窗）；
+    //     一旦判定为拖拽，立即 cancelHeld + abort，撤销这次钓鱼按下，避免松手误抛竿。
+    //  2) 不移动的点按 / 按住 → 完全交给 Input 走钓鱼流程（蓄力、收线都能用）。
+    // 钓鱼进行中（charge/wait/hook/minigame/result）人物区照常作为钓鱼输入，绝不触发拖窗。
+    // 命中区 = 人物外扩的近似正方形（含等级徽章及下方区域），见 inPetBody()。
+    let petDown = false, petMoved = false, petSX = 0, petSY = 0, petLX = 0, petLY = 0
+    const DRAG_TH = 5
+    window.addEventListener('pointerdown', (e: PointerEvent) => {
       if (e.button !== 0) return
-      dragPX = e.clientX
-      dragPY = e.clientY
-      dragActive = true
-      dragMoved = false
-      this.dragActive = true // 拖拽中强制可交互
-      handle.setPointerCapture?.(e.pointerId)
-      handle.style.cursor = 'grabbing'
+      const rect = this.canvas.getBoundingClientRect()
+      const x = e.clientX - rect.left
+      const y = e.clientY - rect.top
+      // 仅在「空闲态」把人物区当成可拖动热区；钓鱼进行中该区照常作为钓鱼输入（可蓄力/收线）。
+      if (this.controller.stateName !== 'idle' || !this.inPetBody(x, y)) return
+      petDown = true
+      petMoved = false
+      petSX = petLX = e.clientX
+      petSY = petLY = e.clientY
     })
-    const onHandleMove = (e: PointerEvent) => {
-      if (!dragActive) return
-      const dx = e.clientX - dragPX
-      const dy = e.clientY - dragPY
-      if (!dragMoved && Math.hypot(dx, dy) > 4) dragMoved = true
-      if (dragMoved) {
-        bridge?.drag(dx, dy)
-        dragPX = e.clientX
-        dragPY = e.clientY
+    window.addEventListener('pointermove', (e: PointerEvent) => {
+      if (!petDown) return
+      const dx = e.clientX - petLX
+      const dy = e.clientY - petLY
+      if (!petMoved && Math.hypot(e.clientX - petSX, e.clientY - petSY) > DRAG_TH) {
+        petMoved = true
+        // 判定为拖动窗口：撤销这次钓鱼按下（否则松开会误抛竿），并复位状态机
+        this.input.cancelHeld()
+        this.controller.abort()
+        this.dragActive = true // 拖动期间强制整窗可交互，穿透不抢走后续 move/up
       }
-    }
-    const onHandleUp = (e: PointerEvent) => {
-      if (!dragActive) return
-      dragActive = false
+      if (petMoved) {
+        bridge?.drag(dx, dy)
+        petLX = e.clientX
+        petLY = e.clientY
+      }
+    })
+    const petEnd = () => {
+      if (!petDown) return
+      petDown = false
       this.dragActive = false
-      handle.style.cursor = 'grab'
-      handle.releasePointerCapture?.(e.pointerId)
-      if (!dragMoved) this.input.simulateTap() // 未移动 = 轻点 = 钓鱼
+      // petMoved=false 时什么都不做：Input 已正常收到按下/松开 → 钓鱼照常（蓄力/收线）
     }
-    window.addEventListener('pointermove', onHandleMove)
-    window.addEventListener('pointerup', onHandleUp)
-    window.addEventListener('pointercancel', () => { dragActive = false; this.dragActive = false; handle.style.cursor = 'grab' })
+    window.addEventListener('pointerup', petEnd)
+    window.addEventListener('pointercancel', petEnd)
 
     // 右下角工具按钮：点击弹出 设置 / 音效 / 退出
     const t = T.TOOLS_BTN
@@ -239,6 +234,14 @@ export class Game {
       !!this.fishPicker?.classList.contains('visible')
     this.forceInteractive = active || overlayOpen || this.dragActive
     this.updateClickThrough()
+
+    // 光标：人物热区（空闲态）显示手型 grab，拖动中 grabbing，其余区域 pointer（暗示可点击钓鱼）
+    const overPet =
+      this.ctPtrX >= 0 && this.ctPtrY >= 0 && this.inPetBody(this.ctPtrX, this.ctPtrY)
+    let cursor = 'pointer'
+    if (this.dragActive) cursor = 'grabbing'
+    else if (overPet && this.controller.stateName === 'idle') cursor = 'grab'
+    this.canvas.style.cursor = cursor
   }
 
   /** 构建工具菜单（DOM 覆盖层）：
@@ -348,30 +351,28 @@ export class Game {
   }
 
   /**
-   * 任意弹窗打开时，把拖拽手柄从 drag 临时切到 no-drag。
-   * 否则手柄所在的「拖拽区」会吞掉该区域(恰好压在玩法说明关闭按钮上)的指针事件，
-   * 导致关闭按钮/点外边都点不动——这正是此前弹窗关不掉的根因。
+   * 任意弹窗打开时，刷新点击穿透判定（弹窗期间 forceInteractive 已自动置真，窗口整窗可交互，
+   * 关闭按钮/点外边都能正常点）。原本压在弹窗关闭按钮上的「拖拽手柄」已移除（改为窗口级监听），
+   * 不再需要切 pointer-events。
    */
   private updateDragWhileOverlay(): void {
-    const anyOpen =
-      !!this.toolsOpen ||
-      !!this.helpOverlay?.classList.contains('visible') ||
-      !!this.charPicker?.classList.contains('visible') ||
-      !!this.rodPicker?.classList.contains('visible') ||
-      !!this.fishPicker?.classList.contains('visible')
-    this.dragHandle?.style.setProperty('pointer-events', anyOpen ? 'none' : 'auto')
     this.updateClickThrough()
   }
 
-  /** 人物身体命中框（与 #drag-handle 完全一致）：落在框内=可交互（拖拽窗口 / 点按钓鱼） */
+  /**
+   * 人物可交互命中框：以人物为中心的近似正方形（边长 SIDE），覆盖人物本体、
+   * 右上角的等级徽章以及其下方区域——即用户要求的"连带等级条下方"的整块可点击区。
+   * 工具按钮的小圆区被排除（否则会同时触发拖窗与菜单）。
+   */
   private inPetBody(x: number, y: number): boolean {
-    const dw = T.PLAYER_W * T.PLAYER_SCALE
-    const dh = T.PLAYER_H * T.PLAYER_SCALE
-    const l = T.PLAYER_X - dw / 2 - 18
-    const tp = T.PLAYER_FOOT_Y - dh - 18
-    const w = dw + 36
-    const h = dh + 30
-    return x >= l && x <= l + w && y >= tp && y <= tp + h
+    const SIDE = 160
+    const cx = T.PLAYER_X
+    const cy = T.PLAYER_FOOT_Y - (T.PLAYER_H * T.PLAYER_SCALE) / 2 // 人物竖直中点
+    const l = cx - SIDE / 2
+    const t = cy - SIDE / 2
+    if (x < l || x > l + SIDE || y < t || y > t + SIDE) return false
+    if (this.input.toolsHitTest && this.input.toolsHitTest(x, y)) return false
+    return true
   }
 
   /**

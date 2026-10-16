@@ -2,8 +2,8 @@
  * 输入抽象：把鼠标左键 / C 键 / 空格统一成「使用工具」的按住、按下沿、松开沿。
  *
  * 交互模型（清晰划分，避免"不知道点哪"）：
- *  - 人物身体：由 Game 里的原生 -webkit-app-region:drag 手柄负责"拖动窗口"；
- *    手柄上额外挂了 click 监听，未移动的小点击补一次钓鱼触发（simulateTap）。
+ *  - 人物身体（含等级徽章下方正方形热区）：由 Game 在窗口级监听里负责"拖动窗口"，
+ *    其余点击/按住直接交给本类走钓鱼流程（蓄力 / 收线 / 继续）。
  *  - 右下角工具按钮：点击弹出 设置/音效/退出（toolsHitTest / onTools）。
  *  - 窗口其余区域：按住/点击 = 钓鱼（蓄力 / 收线 / 继续）。
  *  - 顶部空白带：不触发钓鱼，避免点到窗口外缘误钓。
@@ -125,13 +125,14 @@ export class Input {
   }
 
   /**
-   * 身体快速点击补一次钓鱼触发：原生拖拽手柄会吞掉 mousedown，
-   * 但"未移动的小点击"仍会冒泡出 click 事件——这里补一个瞬时的按下+松开沿，
-   * 让点在人物身上也能开始钓鱼（同时不干扰拖动）。
+   * 撤销一个尚未松开的"鼠标按下"（用于人物区判定为拖拽窗口时，避免松手误触钓鱼）。
+   * 只撤销由 mouse 源产生的按下：清除 held，并回退一次 press 沿计数，使控制器不会看到这次按下。
    */
-  simulateTap(): void {
-    this.addSource('mouse')
-    this.removeSource('mouse')
+  cancelHeld(): void {
+    if (this.sources.has('mouse')) {
+      this.sources.delete('mouse')
+      if (this.pressEdges > 0) this.pressEdges--
+    }
   }
 
   private addSource(id: string): void {
