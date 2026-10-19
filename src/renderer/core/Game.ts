@@ -3,6 +3,7 @@ import { Loop } from './Loop'
 import { Input } from './Input'
 import { newGestureState, stepGesture } from './gesture'
 import { AudioBus } from './AudioBus'
+import { shouldCloseOverlay } from './overlayClose'
 import { Rng } from './Rng'
 import { SpriteFactory } from '../render/SpriteFactory'
 import type { SpriteSet } from '../render/SpriteFactory'
@@ -19,7 +20,11 @@ import { ROD_LIST } from '../shared/rods'
 
 /** 主进程暴露的桌宠桥 */
 interface PetBridge {
-  drag: (dx: number, dy: number) => void
+  /** 拖窗：渲染进程通知主进程"进入/退出身体拖窗态"，窗口由 OS 原生移动（无重影） */
+  bodyDragBegin: () => void
+  bodyDragEnd: () => void
+  /** 主进程在拖窗过程中转发窗口 move 事件，渲染进程据此取消钓鱼 */
+  onBodyMoved: (cb: () => void) => void
   quit: () => void
   openDevTools: () => void
   setAutostart: (on: boolean) => void
@@ -44,6 +49,8 @@ export class Game {
   private toolsOverlay: HTMLElement | null = null
   private toolsSubmenu: HTMLElement | null = null
   private toolsOpen = false
+  /** 工具菜单本体（关闭"点击外部"判定时作为内容区） */
+  private toolsMenuEl: HTMLElement | null = null
   private helpOverlay: HTMLElement | null = null
   private helpDialog: HTMLElement | null = null
   private charPicker: HTMLElement | null = null
@@ -55,9 +62,9 @@ export class Game {
   private fishPicker: HTMLElement | null = null
   private fishGrid: HTMLElement | null = null
   private fishIcons: Record<string, string> = {}
-  /** 身体交互层（纯透明、无 app-region）：覆盖人物本体 + 等级徽章及下方区域，稳定接收
-   *  指针事件。钓鱼与"手动拖窗"都通过它触发（原生 app-region:drag 会吞 pointerdown，无法
-   *  在同一区域同时做到"点一下钓、按住拖"，故拖窗改由 IPC 调主进程 setPosition 完成）。 */
+  /** 身体交互层（原生 app-region:drag，由 OS 合成器移动窗口，透明窗上顺滑无重影）：覆盖人物本体 +
+   *  等级徽章及下方区域。点按/按住 = 钓鱼（蓄力/收线），按住并拖动 = OS 原生移窗（无重影）。
+   *  原生拖拽区域仍会派发 mousedown（仅"按住并移动"才触发系统拖窗），故钓鱼的"点一下"照常生效。 */
   private petHit: HTMLElement | null = null
   /** 人物交互区矩形（窗口坐标，= 点击穿透判定区，也是钓鱼/拖窗命中区） */
   private petHandleRect = { l: 0, t: 0, r: 0, b: 0 }
@@ -65,6 +72,10 @@ export class Game {
   private gesture = newGestureState()
   /** 判定为"拖窗"的位移阈值（屏幕像素）：超过即取消钓鱼、转移动窗口 */
   private readonly dragThreshold = 5
+  /** 身体区是否正被按住（mousedown 置真，mouseup 置假，用于向主进程同步拖窗态） */
+  private bodyPressing = false
+  /** 本次身体手势是否已判定为"拖窗"（用于松手时不误触发抛竿） */
+  private bodyDragging = false
 
   /** 主进程桥（拖拽/退出/自启/点击穿透） */
   private bridge: PetBridge | undefined
@@ -115,15 +126,13 @@ export class Game {
     this.bridge = bridge
 
     // 人物区交互：同一块区域既「点一下钓鱼」又「按住拖动移窗」，二者并存、互不打架。
-    //   实现：一块纯透明、无 app-region 的 #pet-hit 覆盖身体区，稳定接收指针事件；
-    //   手势判定全部交给 gesture.ts 状态机——
-    //     · 按下 → 开始钓鱼按住（蓄力）；
-    //     · 移动未超阈值 → 仍在蓄力（视为"按住钓鱼"）；
-    //     · 移动超阈值 → 取消钓鱼（cancelHeld + controller.abort），改用 IPC 调主进程
-    //       setPosition 移动窗口（主进程 pet-drag 已就绪）。这是唯一能在同一区域做到
-    //       "点一下钓、按住拖" 的方案：原生 app-region:drag 会吞 pointerdown 导致钓鱼起不来，
-    //       且"隐藏上层露出原生拖拽层"的 trick 根本不生效（pointerdown 已落在 no-drag 层，
-    //       OS 不会 retroactively 起拖）。手动 IPC 拖窗在 Windows 透明窗上是顺滑无重影的。
+    //   实现：一块覆盖身体区的 #pet-hit，设为原生 app-region:drag —— 由操作系统合成器移动窗口，
+    //   透明窗上顺滑无重影（手动 setPosition/IPC 在透明窗上会留拖影，已弃用）。
+    //   原生拖拽区域仍会派发 mousedown（仅"按住并移动"才触发系统拖窗），所以：
+    //     · mousedown → 开始钓鱼按住（蓄力），同时通知主进程"进入拖窗态"；
+    //     · 若只是点一下（没移动）→ 走正常钓鱼：松手 = 抛竿；
+    //     · 若按住移动 → OS 原生拖窗移动窗口，主进程 win.on('move') 转发给本进程，
+    //       这里取消钓鱼（cancelHeld + controller.abort），避免"拖完松手被误判成抛竿"。
     //   点击穿透：仅当指针落在「人物交互区 或 工具按钮」时才恢复可交互，其余区域穿透到下方工作窗口。
     // 几何以常量推导，保证与 PetView 实际绘制的人物 / 等级徽章位置一致：
     //   人物：以 (PLAYER_X - CAT_DW/2, PLAYER_FOOT_Y - CAT_DH) 为左上角。
@@ -153,34 +162,41 @@ export class Game {
     hit.style.height = `${hh}px`
     hit.style.cursor = 'grab'
     hit.style.touchAction = 'none'
+    // 原生拖拽：由 OS 合成器移动窗口，透明窗上无重影
+    hit.style.setProperty('-webkit-app-region', 'drag')
     ;(document.getElementById('stage') as HTMLElement).appendChild(hit)
     this.petHit = hit
 
-    // 身体区手势：按下/移动/松开 全部推进 gesture 状态机，按返回动作执行副作用。
-    hit.addEventListener('pointerdown', (e: PointerEvent) => {
+    // 身体区手势：mousedown 开始钓鱼（不 preventDefault，否则会阻止 OS 原生拖窗）；
+    // 移动超阈值 → 取消钓鱼；OS 原生拖窗负责实际移动（由主进程 move 事件兜底取消钓鱼）。
+    hit.addEventListener('mousedown', (e: MouseEvent) => {
       if (e.button !== 0) return
-      e.preventDefault()
       const r = stepGesture(this.gesture, { kind: 'down', x: e.clientX, y: e.clientY }, this.dragThreshold)
       if (r.type === 'fish-start') this.input.beginBodyHoldFromClient(e.clientX, e.clientY)
+      this.bodyPressing = true
+      this.bridge?.bodyDragBegin()
     })
     window.addEventListener('pointermove', (e: PointerEvent) => {
       const r = stepGesture(this.gesture, { kind: 'move', x: e.clientX, y: e.clientY }, this.dragThreshold)
-      if (r.type === 'none' || r.type === 'fish-start' || r.type === 'reset') return
-      if (r.type === 'begin-drag') {
-        // 越过阈值：取消本次钓鱼，转入拖窗
-        this.input.cancelHeld()
-        this.controller.abort()
-        if (this.petHit) this.petHit.style.cursor = 'grabbing'
-      }
-      this.bridge?.drag(r.dx, r.dy)
+      if (r.type === 'begin-drag' || r.type === 'drag') this.abortBodyDrag()
     })
     const endBody = () => {
+      if (this.bodyPressing) {
+        this.bodyPressing = false
+        this.bridge?.bodyDragEnd()
+      }
+      this.bodyDragging = false
       stepGesture(this.gesture, { kind: 'up' }, this.dragThreshold)
       if (this.petHit) this.petHit.style.cursor = 'grab'
-      // r.type === 'reset'：钓鱼的"松开抛竿"由 Input.window pointerup（endPress）负责，这里无需额外处理
     }
     window.addEventListener('pointerup', endBody)
     window.addEventListener('pointercancel', endBody)
+    // 兜底：OS 原生拖窗期间渲染进程的 pointermove 可能被系统吞掉，此时靠主进程转发
+    // 的 win move 事件来取消钓鱼，确保"拖窗松手"不会误触发抛竿。
+    this.bridge?.onBodyMoved(() => this.abortBodyDrag())
+
+    // 点击菜单/弹窗外任意位置即关闭：统一在捕获阶段拦截，落点在内容区之外就关掉对应面板。
+    document.addEventListener('pointerdown', (e: PointerEvent) => this.onDocPointerDown(e), true)
 
     // 右下角工具按钮：点击弹出 设置 / 音效 / 退出
     const t = T.TOOLS_BTN
@@ -190,19 +206,10 @@ export class Game {
     this.buildCharPicker()
     this.buildRodPicker()
     this.buildFishPicker()
-    // 玩法说明弹窗：用 pointerdown 关闭（click 在透明窗体下常被抑制，pointerdown 更稳）。
-    // 点关闭按钮、或点对话框之外（暗色遮罩）即关闭；点弹窗内部(文字)不关。
+    // 玩法说明弹窗：点关闭按钮关闭；点对话框之外任意处关闭由统一的 onDocPointerDown 处理。
     this.helpOverlay = document.getElementById('help-overlay') as HTMLElement
     this.helpDialog = document.getElementById('help-dialog')
     const helpClose = document.getElementById('help-close')
-    const onHelpDown = (e: PointerEvent) => {
-      const inDialog = this.helpDialog?.contains(e.target as Node) ?? false
-      if (e.target === helpClose || !inDialog) {
-        e.stopPropagation()
-        this.toggleHelp(false)
-      }
-    }
-    this.helpOverlay?.addEventListener('pointerdown', onHelpDown)
     helpClose?.addEventListener('pointerdown', (e) => { e.stopPropagation(); this.toggleHelp(false) })
 
     // 启动时把已保存的开机自启状态同步给主进程（写入注册表 Run 项）
@@ -349,16 +356,10 @@ export class Game {
 
     menu.addEventListener('click', (e) => e.stopPropagation())
     overlay.appendChild(menu)
-    // 仅点击菜单背后的空白区才关闭菜单（避免覆盖按钮的 click，导致"点了没反应"）
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) {
-        sub.classList.remove('visible')
-        this.toggleTools(false)
-      }
-    })
     ;(document.getElementById('stage') as HTMLElement).appendChild(overlay)
     this.toolsOverlay = overlay
     this.toolsSubmenu = sub
+    this.toolsMenuEl = menu
   }
 
   /** 切换工具菜单显隐（force 显式指定） */
@@ -413,6 +414,42 @@ export class Game {
     this.petLayersVisible = show
     const d = show ? '' : 'none'
     if (this.petHit) this.petHit.style.display = d
+  }
+
+  /**
+   * 取消本次身体钓鱼手势（用于判定为"拖窗"时）：撤销按住、复位控制器，并标记 bodyDragging，
+   * 使随后的"松手"不会误触发抛竿。幂等：仅在确有身体手势活动时才执行。
+   */
+  private abortBodyDrag(): void {
+    if (!this.bodyPressing || !this.gesture.active) return
+    this.input.cancelHeld()
+    this.controller.abort()
+    this.bodyDragging = true
+    if (this.petHit) this.petHit.style.cursor = 'grabbing'
+  }
+
+  /**
+   * 任意面板打开时，点击其"内容区之外"的位置即关闭该面板。捕获阶段拦截：
+   *  - 工具菜单：内容区 = #tools-menu（含其展开的子菜单）；
+   *  - 玩法说明 / 各图鉴：内容区 = 各自的 .panel / #help-dialog。
+   * 工具按钮本身不在此处理（由 Input 负责开关菜单）。
+   */
+  private onDocPointerDown(e: PointerEvent): void {
+    if (!this.anyOverlayOpen()) return
+    const t = e.target as Node | null
+    if (this.toolsOpen && shouldCloseOverlay({ overlay: this.toolsOverlay, content: this.toolsMenuEl }, t)) {
+      this.toggleTools(false)
+    }
+    if (shouldCloseOverlay({ overlay: this.helpOverlay, content: this.helpDialog }, t)) this.toggleHelp(false)
+    if (shouldCloseOverlay({ overlay: this.charPicker, content: this.charPicker?.querySelector('.panel') ?? null }, t)) {
+      this.toggleCharPicker(false)
+    }
+    if (shouldCloseOverlay({ overlay: this.rodPicker, content: this.rodPicker?.querySelector('.panel') ?? null }, t)) {
+      this.toggleRodPicker(false)
+    }
+    if (shouldCloseOverlay({ overlay: this.fishPicker, content: this.fishPicker?.querySelector('.panel') ?? null }, t)) {
+      this.toggleFishPicker(false)
+    }
   }
 
   /**
@@ -476,10 +513,7 @@ export class Game {
       grid.appendChild(card)
     }
 
-    // 点遮罩空白处关闭；关闭按钮关闭
-    this.charPicker.addEventListener('pointerdown', (e) => {
-      if (e.target === this.charPicker) this.toggleCharPicker(false)
-    })
+    // 关闭按钮关闭；点面板外任意处关闭由统一的 onDocPointerDown 处理
     document.getElementById('char-close')?.addEventListener('pointerdown', (e) => {
       e.stopPropagation()
       this.toggleCharPicker(false)
@@ -566,10 +600,7 @@ export class Game {
       grid.appendChild(card)
     }
 
-    // 点遮罩空白处关闭；关闭按钮关闭
-    this.rodPicker.addEventListener('pointerdown', (e) => {
-      if (e.target === this.rodPicker) this.toggleRodPicker(false)
-    })
+    // 关闭按钮关闭；点面板外任意处关闭由统一的 onDocPointerDown 处理
     document.getElementById('rod-close')?.addEventListener('pointerdown', (e) => {
       e.stopPropagation()
       this.toggleRodPicker(false)
@@ -615,10 +646,7 @@ export class Game {
       this.fishIcons[def.id] = (frames?.[0] ?? this.sprites.fish.carp[0]).toDataURL()
     }
 
-    // 点遮罩空白处关闭；关闭按钮关闭
-    this.fishPicker.addEventListener('pointerdown', (e) => {
-      if (e.target === this.fishPicker) this.toggleFishPicker(false)
-    })
+    // 关闭按钮关闭；点面板外任意处关闭由统一的 onDocPointerDown 处理
     document.getElementById('fish-close')?.addEventListener('pointerdown', (e) => {
       e.stopPropagation()
       this.toggleFishPicker(false)

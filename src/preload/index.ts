@@ -3,8 +3,11 @@ import { contextBridge, ipcRenderer } from 'electron'
 // 渲染进程通过此桥与主进程通信（拖拽窗口、退出、调试）
 contextBridge.exposeInMainWorld('fishingCodex', {
   version: '0.2.0',
-  /** 拖拽窗口：传入屏幕像素增量 */
-  drag: (dx: number, dy: number) => ipcRenderer.send('pet-drag', dx, dy),
+  /** 拖窗：渲染进程通知主进程"进入/退出身体拖窗态"，窗口由 OS 原生移动（无重影） */
+  bodyDragBegin: () => ipcRenderer.send('pet-body-drag-begin'),
+  bodyDragEnd: () => ipcRenderer.send('pet-body-drag-end'),
+  /** 主进程在拖窗过程中转发窗口 move 事件，渲染进程据此取消钓鱼 */
+  onBodyMoved: (cb: () => void) => ipcRenderer.on('pet-body-moved', () => cb()),
   /** 退出桌宠 */
   quit: () => ipcRenderer.send('pet-quit'),
   /** 打开开发者工具 */

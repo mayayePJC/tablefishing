@@ -129,12 +129,18 @@ function createWindow(): void {
     }
   })
 
-  // 拖拽桌宠：渲染进程把鼠标增量发过来，这里移动窗口
-  ipcMain.on('pet-drag', (e, dx: number, dy: number) => {
-    const w = BrowserWindow.fromWebContents(e.sender)
-    if (!w) return
-    const [x, y] = w.getPosition()
-    w.setPosition(x + dx, y + dy)
+  // 拖窗（ghost-free 原生拖拽）：身体区是 app-region:drag，由 OS 合成器移动窗口。
+  // 渲染进程按下身体时通知本进程"进入拖窗态"，期间 win 的 move 事件即代表用户在拖窗，
+  // 转发给渲染进程用于"取消钓鱼"；松手再通知退出拖窗态。彻底避免手动 setPosition 在透明窗上的拖影。
+  let bodyDragging = false
+  ipcMain.on('pet-body-drag-begin', () => {
+    bodyDragging = true
+  })
+  ipcMain.on('pet-body-drag-end', () => {
+    bodyDragging = false
+  })
+  win.on('move', () => {
+    if (bodyDragging) win.webContents.send('pet-body-moved')
   })
   ipcMain.on('pet-quit', () => {
     forceQuit = true

@@ -102,6 +102,11 @@ export class Input {
     return [e.clientX - rect.left, e.clientY - rect.top]
   }
 
+  /** 公开：屏幕坐标 → 画布坐标（供 Game 做点击穿透 / 工具按钮判定） */
+  clientToCanvas(e: { clientX: number; clientY: number }): [number, number] {
+    return this.toCanvas(e)
+  }
+
   /**
    * 按下处理：人物热区 / 钓竿热区的点按与按住都汇到这里。
    * - 工具按钮：先"按下待确认"，松手仍在按钮上且不在冷静期才弹出；
