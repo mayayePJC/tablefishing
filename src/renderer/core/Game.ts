@@ -168,7 +168,8 @@ export class Game {
     this.petHit = hit
 
     // 身体区手势：mousedown 开始钓鱼（不 preventDefault，否则会阻止 OS 原生拖窗）；
-    // 移动超阈值 → 取消钓鱼；OS 原生拖窗负责实际移动（由主进程 move 事件兜底取消钓鱼）。
+    // 是否"拖窗"完全交给 OS 原生拖拽判定——按下并移动时 OS 移动窗口，主进程 move 事件转发
+    // pet-body-moved → abortBodyDrag 取消钓鱼；纯点击（窗口不动）则正常蓄力/抛竿，不被误杀。
     hit.addEventListener('mousedown', (e: MouseEvent) => {
       if (e.button !== 0) return
       const r = stepGesture(this.gesture, { kind: 'down', x: e.clientX, y: e.clientY }, this.dragThreshold)
@@ -176,9 +177,12 @@ export class Game {
       this.bodyPressing = true
       this.bridge?.bodyDragBegin()
     })
+    // 关键：取消钓鱼【不要】用本地"位移阈值"判定——蓄力时手的微小抖动(>5px)会被误判成拖窗，
+    // 导致"按住钓鱼"被当场取消（表现=点身体钓不上鱼）。取消钓鱼只由"窗口真的被移动"触发：
+    // 原生拖窗发生时主进程 win.on('move') 转发 pet-body-moved → abortBodyDrag。纯点击窗口不动，
+    // 永不误杀；真拖窗窗口动了，才取消。这里仅推进手势状态机维持 active 标记。
     window.addEventListener('pointermove', (e: PointerEvent) => {
-      const r = stepGesture(this.gesture, { kind: 'move', x: e.clientX, y: e.clientY }, this.dragThreshold)
-      if (r.type === 'begin-drag' || r.type === 'drag') this.abortBodyDrag()
+      stepGesture(this.gesture, { kind: 'move', x: e.clientX, y: e.clientY }, this.dragThreshold)
     })
     const endBody = () => {
       if (this.bodyPressing) {

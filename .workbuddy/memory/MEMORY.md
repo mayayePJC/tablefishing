@@ -10,10 +10,11 @@
 - **绿条手感（星露谷向）**：绿条要灵活——按住快速上升、松开很快沉底（`BAR_ACCEL_UP ~880`、`BAR_GRAVITY ~480`、`BAR_SPEED_MAX ~120`），考验鼠标操控；难度主要交给鱼（更频繁变向、更高游速），而不是让绿条粘滞。
 - **MAX 抛竿**：满力度（`MAX_CAST_THRESHOLD:0.999`）时蓄力条金色高亮 + 头顶「MAX」闪烁；好鱼概率更高（鱼群权重 ×= 1+2.2×难度/110、垃圾率 ×0.4、宝箱率 +15%），钓到鱼时结算窗显示金色「MAX CAST」徽章。
 - **音效**：星露谷风、WebAudio 程序化合成（振荡器+噪声，无音频文件——原版音频有版权不内置）；覆盖蓄力嘀嗒/MAX 达成/抛出/落水/咬钩/收线 loop/捕获（传说鱼加长琶音）/宝箱/逃脱/升级/UI 点击；`M` 键静音。
-- **拖拽**：用人物身区上的 `-webkit-app-region:drag` 透明层（`#drag-handle`）做**原生拖动**（顺滑无重影）。**关键坑**：主窗口 `BrowserWindow` 必须 `movable:true`——`movable:false` 会让 `-webkit-app-region:drag` 区域被系统整体忽略，导致桌宠"彻底拖不动"。拖拽手柄要足够大（围绕人物 ±18px）方便抓取；手柄上额外挂 `click` 监听，未移动的小点击补一次钓鱼触发，避免"点身体没反应"。不要逐帧 IPC setPosition（有重影）。
+- **拖拽**：身体区用一层 `#pet-hit` 设 `app-region:drag` 做**原生拖动**（OS 合成器移窗，透明窗上顺滑无重影）。**关键坑**：① 主窗口 `BrowserWindow` 必须 `movable:true`，否则 drag 区域被系统忽略、桌宠"彻底拖不动"；② **绝不要**手写 IPC `setPosition` 拖窗——透明分层窗上会留拖影（2026-10-19 反复踩坑后确认）；③ 原生 drag 区域仍会派发 `mousedown`（仅"按住并移动"才触发系统拖窗），所以"点一下=钓鱼"用 `mousedown` 起始（**不要 preventDefault**，否则阻止系统拖窗）、`mouseup` 由 Input 收尾抛竿；④ 判定为拖窗时取消钓鱼靠**主进程兜底**：渲染进程 `mousedown` 发 `pet-body-drag-begin`，主进程 `win.on('move')` 在拖窗态转发 `pet-body-moved`，渲染进程 `abortBodyDrag()` 撤销蓄力并 `controller.abort()`——避免 OS 拖窗期间渲染进程 pointermove 被吞、松手误判抛竿。手势状态机在 `src/renderer/core/gesture.ts`（无 DOM，可单测）。
 - **工具菜单（原退出按钮）**：不要右键退出；右下角是 **tools 汉堡按钮**（`TOOLS_BTN:{x:318,y:368,r:12}`），点击弹出菜单：设置（原 F1 面板）、音效、**隐身**、退出。设置里中文滑杆可热调 `TUNABLE_KEYS`。工具菜单=完整点击 + 失焦/被遮盖后 1400ms 冷静期（防截图误触）。
 - **隐身模式**：由工具菜单开关，持久化到 `SaveStore`。隐身时只隐藏人物、地面阴影、lev 徽章，工具按钮与钓鱼线/浮标/小游戏 UI 仍可见；不退出进程。
 - **点击区域**：顶部 30px 空白带不触发钓鱼；人物身体=拖动；人物身体小点击=钓鱼；窗口其余区域=钓鱼；工具按钮=打开菜单。
+- **弹窗关闭**：任意面板（工具菜单/玩法说明/形象·鱼·竿图鉴）打开时，**点击其内容区之外任意位置即关闭**（统一由 `Game.onDocPointerDown` 在捕获阶段拦截，逻辑抽到 `src/renderer/core/overlayClose.ts` 的 `shouldCloseOverlay`，可单测）。工具按钮本身不在此处理（由 Input 开关菜单）。
 - **文字可读性**：透明背景上的中文用带深色描边的矢量字；米色结算面板用 `PetView.rtext()`（整数对齐、固定行高、1px 深描边），保证清晰整齐、不歪扭。
 - **交付形式**：默认输出两种产物：`dist/FishingCat.exe`（便携单文件，约 106 MB）和 `dist/FishingCat-Setup-${version}.exe`（NSIS 安装包，约 107 MB）。安装包更推荐给朋友：安装到磁盘后开机无需自解压，启动更快。重新打包前若 exe 被占用，先结束运行中的实例。
 - **图标**：像素风图标位于 `build/icon.ico`（32×32 网格：深青底 + 暗框 + 切角 + 阶梯水波 + 奶油像素鱼 + J 形银钩钓线 + 气泡，主体邻接检测自动描边），由 `scripts/makeicon.cjs` 生成（@napi-rs/canvas，最近邻缩放 [256,128,64,48,32,16] 组装 ICO，另出 build/logo.png 512px）。**注意 scripts/make-icon.mjs 是旧版遗留无人引用，改图标只编辑 makeicon.cjs。**
@@ -23,7 +24,7 @@
 - **启动优化**：`BrowserWindow` 设 `show:false`，`ready-to-show` 后 `win.show()`，消除白屏；`app.commandLine.appendSwitch('disable-features','CalculateNativeWinOcclusion')` 减少透明置顶窗的遮挡判定延迟；`app.requestSingleInstanceLock()` 防止多开。
 
 ## 项目结构与要点
-- Electron + electron-vite + TS；透明无边框窗口（`transparent/frame:false/skipTaskbar`），拖拽经 IPC `fishingCodex.drag(dx,dy)`。
+- Electron + electron-vite + TS；透明无边框窗口（`transparent/frame:false/skipTaskbar`），拖拽用原生 `app-region:drag`（见上"拖拽"条），不再走 IPC `setPosition`。
 - 调参集中地 `src/renderer/shared/constants.ts`（`T`）；`scripts/difficulty-sim.ts` 是无头钓鱼难度模拟（Fish/CatchBar/ProgressBar，无 DOM），改难度后跑它量化捕获率。
 - `scripts/petshot.ts` 用 @napi-rs/canvas 把 PetView 渲成 PNG 截图，用于 Node 端可视化验证（esbuild bundle + external @napi-rs/canvas）。
 - 热键：F1/F3 调试面板（可热调 `TUNABLE_KEYS`）、F12 DevTools、M 静音、Esc/Tab 图鉴；拖拽猫身移动窗口。
