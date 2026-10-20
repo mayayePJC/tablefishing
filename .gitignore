@@ -1,19 +1,31 @@
-# 依赖
+# Local dependencies and build caches
 node_modules/
-
-# 构建产出（由 npm run dist 生成，体积大，不入库；可走 GitHub Releases 分发）
-dist/
 out/
-
-# 缓存
+out-test/
+out-test-vite/
+target/
 .vite/
 *.log
+*.pdb
 
-# 系统 / 编辑器
+# Private workspace data and personal OST
+.workbuddy/
+.local/
+.workspace/
+work/
+outputs/
+/BGM/*
+!/BGM/.gitkeep
+
+# Only publish the current release at the workspace root
+/*.exe
+!/fishing-codex.exe
+!/FishingCat-Setup-0.1.6.exe
+/*.dll
+
+# Editor and operating system files
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
-
-# 本地数据（运行时生成）
-.workspace/
+__pycache__/

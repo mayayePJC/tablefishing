@@ -1,0 +1,32 @@
+[package]
+name = "fishing-codex"
+version = "0.1.6"
+description = "Fishing Cat 钓鱼桌宠 (Tauri 壳)"
+authors = ["Fishing Codex"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "fishing_codex_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "fishing-codex"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+windows-sys = { version = "0.52", features = ["Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Threading"] }
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+strip = true

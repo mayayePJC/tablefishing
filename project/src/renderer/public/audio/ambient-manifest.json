@@ -1,0 +1,107 @@
+{
+  "version": 2,
+  "durationSeconds": 120,
+  "sampleRate": 32000,
+  "channels": 2,
+  "announcementIntervalSeconds": 60.0,
+  "announcements": [
+    {
+      "cueAtSeconds": 0.15,
+      "atSeconds": 1.15,
+      "voiceSeconds": 19.4499375,
+      "text": "旅客朋友们，请注意。海星航空，前往云海的一二六八次航班，现在开始登机。请您前往十二号登机口，出示登机牌，有序登机。谢谢。"
+    },
+    {
+      "cueAtSeconds": 60.15,
+      "atSeconds": 61.15,
+      "voiceSeconds": 19.565125,
+      "text": "各位旅客，下午好。前往星港的远山航空，六零九次航班，即将开始登机。请携带好随身物品，前往二十三号登机口等候。祝您旅途愉快。"
+    }
+  ],
+  "encodedAnnouncementChecks": [
+    {
+      "cueAtSeconds": 0.15,
+      "voiceAtSeconds": 1.15,
+      "encodedCueCorrelation": 0.3824250321509632,
+      "encodedVoiceCorrelation": 0.767412328012832
+    },
+    {
+      "cueAtSeconds": 60.15,
+      "voiceAtSeconds": 61.15,
+      "encodedCueCorrelation": 0.3517426667314267,
+      "encodedVoiceCorrelation": 0.7756623461505908
+    }
+  ],
+  "tracks": [
+    {
+      "file": "src\\renderer\\public\\audio\\forest-rain.ogg",
+      "bytes": 1236841,
+      "sha256": "1070bf4e9814afa60b840724120794f5c021f6d96da4a14184a07848d51a3a82",
+      "durationSeconds": 120.0,
+      "sampleRate": 32000,
+      "channels": 2,
+      "rmsDbfs": -17.803986333285042,
+      "peakDbfs": -3.8942479988001653,
+      "clippedSamples": 0,
+      "loopBoundaryDelta": [
+        0.0247410386800766,
+        0.007157687097787857
+      ],
+      "ordinaryAdjacentDeltaP99": [
+        0.04397789388895035,
+        0.04383479058742523
+      ],
+      "oneSecondRmsDbfs": {
+        "min": -18.142376738403456,
+        "max": -17.404436712563403,
+        "p05": -18.006699535565126,
+        "p95": -17.583105357459395,
+        "p95MinusP05": 0.42359417810573063
+      },
+      "spectralCentroidHz": 490.58919496321994,
+      "frequencyBandPowerPercent": {
+        "under125Hz": 19.20112419128418,
+        "125to500Hz": 45.838218688964844,
+        "500to2000Hz": 33.85779571533203,
+        "2000to4000Hz": 1.1025609970092773,
+        "above4000Hz": 0.00029600385460071266
+      },
+      "id": "forest-rain"
+    },
+    {
+      "file": "src\\renderer\\public\\audio\\airport.ogg",
+      "bytes": 1991673,
+      "sha256": "4ee4869c47e56e385a0dabb4f61c45e42a89b814c9fb21ba82d8083f95cebb1f",
+      "durationSeconds": 120.0,
+      "sampleRate": 32000,
+      "channels": 2,
+      "rmsDbfs": -17.78987015455137,
+      "peakDbfs": -3.998325997352286,
+      "clippedSamples": 0,
+      "loopBoundaryDelta": [
+        0.015852920711040497,
+        0.0006343796849250793
+      ],
+      "ordinaryAdjacentDeltaP99": [
+        0.08117939531803131,
+        0.0738537609577179
+      ],
+      "oneSecondRmsDbfs": {
+        "min": -19.723744913968805,
+        "max": -12.693944476904932,
+        "p05": -19.587761655097275,
+        "p95": -14.557525841277593,
+        "p95MinusP05": 5.030235813819681
+      },
+      "spectralCentroidHz": 641.3626012408752,
+      "frequencyBandPowerPercent": {
+        "under125Hz": 13.428548812866211,
+        "125to500Hz": 34.7540283203125,
+        "500to2000Hz": 48.877323150634766,
+        "2000to4000Hz": 2.532581329345703,
+        "above4000Hz": 0.4075227379798889
+      },
+      "id": "airport"
+    }
+  ]
+}

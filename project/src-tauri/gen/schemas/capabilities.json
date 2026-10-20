@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Fishing Cat 默认能力集：仅主窗口可用","local":true,"windows":["main"],"permissions":["core:default","core:event:default","core:window:default","core:window:allow-start-dragging","core:webview:default"]}}

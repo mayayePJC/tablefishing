@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fishing Cat · 钓鱼桌宠</title>
+  <style>
+    /* 与 Palette.ts 的 wood / sand / dirt 同源；所有 DOM 面板共用暖纸与木框。 */
+    :root {
+      --ink: #241a12; --paper: #f0e6cc; --paper-light: #fff6df; --paper-shade: #e3cf9e;
+      --paper-inset: #e8d8b0; --wood: #7a5230; --wood-dark: #5d3d22; --wood-light: #9c6d40;
+      --muted: #795f40; --gold: #e8c53a; --green: #3f8a3f;
+      --frame: 3px solid var(--wood-dark);
+      --panel-shadow: 3px 3px 0 var(--ink), inset 0 0 0 1px var(--paper-light);
+      --font-ui: "Microsoft YaHei", "PingFang SC", sans-serif;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background: transparent;
+      user-select: none; -webkit-user-select: none;
+    }
+    body { font: 12px/1.5 var(--font-ui); color: var(--ink); }
+    button {
+      appearance: none; -webkit-appearance: none; margin: 0; font: inherit; color: inherit;
+      line-height: 1.4; cursor: pointer; touch-action: manipulation;
+    }
+    button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+    img { display: block; image-rendering: pixelated; object-fit: contain; }
+    #stage { position: relative; width: 100%; height: 100%; isolation: isolate; }
+    canvas#game { display: block; width: 100%; height: 100%; background: transparent; image-rendering: pixelated; cursor: default; }
+    #tools-toggle { position: absolute; z-index: 40; padding: 0; border: 0; border-radius: 0; background: transparent; touch-action: none; }
+    #tools-toggle:focus-visible { outline-offset: -2px; }
+    .overlay { position: absolute; font-size: 12px; line-height: 1.5; color: var(--ink); }
+    /* 一级、设置两列固定总宽度；音乐打开独立面板；Game 计算几何位置。 */
+    #tools-overlay { position: absolute; inset: 0; z-index: 20; display: none; }
+    #tools-overlay.visible { display: block; }
+    #tools-menu, .submenu {
+      background: var(--paper); border: var(--frame); border-radius: 2px;
+      box-shadow: var(--panel-shadow); padding: 5px; gap: 4px;
+    }
+    #tools-menu {
+      position: absolute; right: 8px; bottom: calc(44px + var(--menu-lift, 0px));
+      display: flex; flex-direction: column; width: 112px; min-width: 0;
+    }
+    #tools-menu button {
+      display: flex; align-items: center; justify-content: space-between; gap: 4px; flex: none;
+      width: 100%; min-width: 0; min-height: 32px; padding: 6px 8px; white-space: nowrap;
+      background: var(--paper-inset); border: 1px solid var(--wood-light); border-radius: 1px;
+      color: var(--wood-dark); font-size: 12px; font-weight: 600; text-align: left;
+      box-shadow: inset 0 1px 0 var(--paper-light);
+    }
+    #tools-menu button:hover { background: var(--paper-light); border-color: var(--wood-dark); }
+    #tools-menu button:active { background: var(--paper-shade); box-shadow: inset 0 1px 0 var(--wood-light); }
+    #tools-menu .menu-label { min-width: 0; text-align: left; }
+    #tools-menu .menu-value { flex: none; color: var(--muted); font-size: 11px; font-weight: 400; }
+    #tools-menu .menu-arrow { flex: none; color: var(--wood); }
+    .shortcut-note { padding: 0 5px 3px; color: var(--muted); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+    .submenu {
+      position: absolute; right: calc(100% + 8px); top: var(--sub-top, 0px);
+      display: none; flex-direction: column; width: 188px; min-width: 0;
+      max-height: var(--sub-max-h, calc(100vh - 16px)); overflow-y: auto; overflow-x: hidden;
+      overscroll-behavior: contain;
+    }
+    .submenu.visible { display: flex; }
+    #tools-menu .submenu-parent { position: relative; padding-right: 22px; }
+    .bgm-current-name { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .submenu-parent::after {
+      content: "▸"; position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+      color: var(--wood); font-size: 11px;
+    }
+    .submenu-parent.open::after { content: "▾"; }
+    #tools-menu .submenu-parent.open { background: var(--paper-shade); border-color: var(--wood-dark); }
+    #bgm-list .panel { width: 284px; }
+    #bgm-list button { min-height: 34px; padding: 7px 9px; border: 1px solid var(--wood-light); border-radius: 1px; background: var(--paper-inset); color: var(--wood-dark); text-align: left; }
+    #bgm-list button:hover { background: var(--paper-light); border-color: var(--wood-dark); }
+    #bgm-list button.active { background: var(--wood); border-color: var(--wood-dark); color: var(--paper-light); box-shadow: inset 3px 0 0 var(--gold); }
+    #bgm-list button:disabled { opacity: .55; cursor: default; }
+    #bgm-list .close { min-height: 28px; padding: 0; background: var(--wood); color: var(--paper-light); text-align: center; }
+    #music-now-playing { flex: none; margin-bottom: 8px; }
+    #music-stop { width: 100%; font-size: 11px; text-align: center !important; }
+    .music-scroll { min-height: 0; overflow-y: auto; overflow-x: hidden; padding-right: 3px; overscroll-behavior: contain; }
+    .music-section-title { margin: 8px 0 6px; font-size: 11px; font-weight: 700; color: var(--muted); }
+    .music-section-title:first-child { margin-top: 0; }
+    #local-music-list, .bgm-synth-list { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+    .bgm-synth-list > button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; font-weight: 700; }
+    .music-track-detail { font-size: 10px; font-weight: 400; opacity: .8; }
+    .local-music-row { display: flex; gap: 4px; min-width: 0; align-items: stretch; }
+    #bgm-list .local-music-play { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex: 1 1 0; min-width: 0; font-size: 11px; }
+    #bgm-list .local-music-remove { flex: 0 0 36px; width: 36px; padding: 5px 3px; text-align: center; font-size: 10px; }
+    .local-music-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .local-music-action { flex: none; font-size: 10px; }
+    #music-empty { padding: 12px 6px; text-align: center; font-size: 11px; color: var(--muted); }
+    #music-status { flex: none; min-width: 0; max-height: 42px; overflow-y: auto; color: var(--muted); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; margin-top: 6px; }
+    #music-status:empty { display: none; }
+    #music-status.error { color: #8d3025; }
+    #bgm-list #music-import { flex: none; width: 100%; margin-top: 8px; text-align: center; }
+    .submenu, .music-scroll, #music-status, .char-grid, .fish-grid, .rod-grid, .help-content { scrollbar-width: thin; scrollbar-color: var(--wood-light) var(--paper-inset); }
+    ::-webkit-scrollbar { width: 7px; height: 7px; }
+    ::-webkit-scrollbar-track { background: var(--paper-inset); }
+    ::-webkit-scrollbar-thumb { background: var(--wood-light); border: 1px solid var(--paper-inset); border-radius: 0; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--wood); }
+    /* 预留工具按钮所在的底边，面板内部滚动，标题和关闭始终留在视口内。 */
+    #help-overlay, .picker {
+      position: absolute; inset: 0; display: none; align-items: flex-start; justify-content: center;
+      padding: 12px 12px 48px; pointer-events: none;
+    }
+    #help-overlay { z-index: 25; }
+    .picker { z-index: 26; }
+    #help-overlay.visible, .picker.visible { display: flex; }
+    #help-dialog, .picker .panel {
+      display: flex; flex-direction: column; min-height: 0; max-width: 100%; max-height: 100%;
+      padding: 10px; pointer-events: auto; color: var(--ink); background: var(--paper);
+      border: var(--frame); border-radius: 2px; box-shadow: var(--panel-shadow);
+    }
+    #char-picker .panel, #fish-picker .panel, #rod-picker .panel { width: 248px; }
+    #char-picker .col-title { margin-bottom: 4px; }
+    .codex-head {
+      display: flex; flex: none; align-items: center; justify-content: space-between; gap: 8px;
+      min-height: 32px; margin: -1px -1px 8px; padding: 0 0 6px; border-bottom: 2px solid var(--wood-light);
+    }
+    .codex-head h3 { margin: 0; color: var(--wood-dark); font-size: 15px; line-height: 22px; font-weight: 700; }
+    .codex-head .close {
+      display: grid; place-items: center; flex: none; width: 28px; height: 28px; padding: 0;
+      background: var(--wood); border: 2px solid var(--wood-dark); border-radius: 1px;
+      color: var(--paper-light); font: 14px/1 var(--font-ui); box-shadow: inset 0 1px 0 var(--wood-light);
+    }
+    .codex-head .close:hover { background: var(--wood-light); }
+    .codex-head .close:active { background: var(--wood-dark); }
+    .col-title { flex: none; margin: 0 0 8px; color: var(--wood-dark); font-size: 11px; font-weight: 700; line-height: 16px; }
+    .col-sub { flex: none; margin: -4px 0 8px; color: var(--muted); font-size: 10px; line-height: 1.5; }
+    .char-grid, .fish-grid {
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-content: start; gap: 6px;
+      min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 2px;
+    }
+    .char-card, .fish-card, .rod-card {
+      position: relative; min-width: 0; margin: 0; color: var(--ink); background: var(--paper-inset);
+      border: 2px solid var(--wood-light); border-radius: 1px; box-shadow: inset 0 1px 0 var(--paper-light);
+    }
+    button.char-card, button.rod-card { font: inherit; text-align: left; }
+    .char-card:hover, .rod-card:not(.locked):hover { background: var(--paper-light); border-color: var(--wood); }
+    .char-card.selected, .rod-card.selected {
+      border-color: var(--wood-dark); background: var(--paper-light); box-shadow: inset 0 0 0 2px var(--gold);
+    }
+    .char-card { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 1px; padding: 1px 2px; text-align: center; }
+    .char-card img { width: 48px; height: 80px; flex: none; }
+    .char-card .nm { max-width: 100%; color: var(--wood-dark); font-size: 10px; font-weight: 700; line-height: 1.4; white-space: nowrap; text-align: center; }
+    .char-card .sl { display: block; min-height: 12px; color: var(--muted); font-size: 10px; line-height: 12px; font-weight: 400; }
+    .char-card.selected .sl { color: var(--green); font-weight: 700; }
+    .char-card .desc { color: var(--muted); font-size: 10px; line-height: 1.4; }
+    .fish-card { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 3px; }
+    .fish-card img { width: 36px; height: 24px; flex: none; }
+    .fish-card .fc-nm { max-width: 100%; color: var(--wood-dark); font-size: 10px; font-weight: 700; line-height: 1.5; text-align: center; overflow-wrap: anywhere; }
+    .fish-card .fc-pr { display: inline-flex; align-items: center; justify-content: center; gap: 3px; color: var(--muted); font-size: 10px; line-height: 1.4; }
+    .fish-card .fc-pr b { color: var(--wood-dark); font-weight: 700; }
+    .fc-pr .coin {
+      position: relative; flex: none; display: inline-block; width: 8px; height: 8px;
+      background: var(--gold); border: 1px solid var(--wood-dark); box-shadow: inset 1px 1px 0 var(--paper-light);
+      clip-path: polygon(25% 0, 75% 0, 75% 12.5%, 87.5% 12.5%, 87.5% 25%, 100% 25%, 100% 75%, 87.5% 75%, 87.5% 87.5%, 75% 87.5%, 75% 100%, 25% 100%, 25% 87.5%, 12.5% 87.5%, 12.5% 75%, 0 75%, 0 25%, 12.5% 25%, 12.5% 12.5%, 25% 12.5%);
+    }
+    .fc-pr .coin::after { content: ""; position: absolute; left: 2px; top: 1px; width: 1px; height: 4px; background: var(--wood-light); }
+    .fish-card .fc-meta { color: var(--muted); font-size: 10px; line-height: 1.4; text-align: center; }
+    .fish-card.locked { background: var(--paper-shade); border-color: #b39a70; }
+    .fish-card.locked img { filter: grayscale(1) brightness(.75); }
+    .fish-card.locked .fc-nm, .fish-card.locked .fc-pr { color: var(--muted); }
+    .rod-grid { display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 2px; }
+    .rod-card { display: flex; flex: none; align-items: center; gap: 8px; min-height: 52px; padding: 4px; }
+    .rod-card img { width: 36px; height: 36px; flex: none; }
+    .rod-card .rd-body { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
+    .rod-card .nm { color: var(--wood-dark); font-size: 12px; font-weight: 700; line-height: 16px; overflow-wrap: anywhere; }
+    .rod-card .rd-bar { height: 4px; background: #cbb37e; border: 1px solid var(--wood-light); overflow: hidden; }
+    .rod-card .rd-bar i { display: block; height: 100%; background: var(--green); }
+    .rod-card .sl, .rod-card .desc, .rod-card .rd-stat, .rod-card .rd-meta, .rod-card .rd-stats { color: var(--muted); font-size: 10px; line-height: 1.5; }
+    .rod-card .rd-meta { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+    .rod-card .rd-meta .sl, .rod-card .rd-stat { flex: none; line-height: 14px; }
+    .rod-card.selected .sl { color: var(--green); font-weight: 700; }
+    .rod-card.locked { background: var(--paper-shade); border-color: #b39a70; cursor: default; }
+    .rod-card.locked img { filter: grayscale(.85); opacity: .7; }
+    #help-dialog { width: 296px; }
+    .help-content { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 3px; }
+    .help-step { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; margin: 0 0 10px; }
+    .help-step .step-index { display: grid; place-items: center; width: 20px; height: 20px; background: var(--wood); color: var(--paper-light); font-size: 11px; font-weight: 700; }
+    #help-dialog p { margin: 0; font-size: 11px; line-height: 1.7; }
+    #help-dialog strong { color: var(--wood-dark); font-size: 12px; }
+    .help-note { padding: 8px; border: 1px solid var(--wood-light); background: var(--paper-inset); }
+    .help-note p + p { margin-top: 6px !important; }
+    kbd { display: inline-block; min-width: 18px; padding: 0 3px; border: 1px solid var(--wood-light); background: var(--paper-light); font: 10px/1.5 var(--font-ui); text-align: center; }
+    .help-footer { flex: none; margin-top: 8px !important; padding-top: 6px; border-top: 1px solid var(--wood-light); color: var(--muted); text-align: center; font-size: 10px !important; }
+  </style>
+</head>
+<body>
+    <div id="stage">
+    <canvas id="game" width="340" height="390" aria-label="钓鱼桌宠"></canvas>
+    <div id="help-overlay">
+      <div id="help-dialog" role="dialog" aria-labelledby="help-title">
+        <div class="codex-head">
+          <h3 id="help-title">玩法说明</h3>
+          <button type="button" class="close" id="help-close" aria-label="关闭玩法说明">✕</button>
+        </div>
+        <div class="help-content">
+          <div class="help-step">
+            <span class="step-index">1</span>
+            <p><strong>按住蓄力，松开抛竿</strong><br>左键按住人物，约 1 秒蓄满金色 MAX；松开抛竿，等鱼咬钩。</p>
+          </div>
+          <div class="help-step">
+            <span class="step-index">2</span>
+            <p><strong>看到咬钩提示，及时点击</strong><br>浮标上方出现「！」时点击收线。等待提示后再点击，错过时机鱼会逃走。</p>
+          </div>
+          <div class="help-step">
+            <span class="step-index">3</span>
+            <p><strong>让绿条跟上鱼</strong><br>小游戏时按住左键让绿条上升，松开则下降；进度满即钓起。</p>
+          </div>
+          <div class="help-note">
+            <p>按住人物并拖动，可移动桌宠。<br><kbd>C</kbd> / <kbd>空格</kbd> 也可钓鱼，<kbd>M</kbd> 切换静音。</p>
+            <p>工具菜单 → 设置 → BGM 可选背景音乐，默认仅钓鱼音效。需要退出时，选择设置中的「退出」。</p>
+          </div>
+        </div>
+        <p class="help-footer">点击面板外，也可以关闭说明</p>
+      </div>
+    </div>
+    <div id="char-picker" class="picker">
+      <div class="panel">
+        <div class="codex-head">
+          <h3>形象</h3>
+          <button type="button" class="close" id="char-close" aria-label="关闭形象图鉴">✕</button>
+        </div>
+        <div class="col-title">选择形象</div>
+        <div class="char-grid" id="char-grid"></div>
+      </div>
+    </div>
+    <div id="fish-picker" class="picker">
+      <div class="panel">
+        <div class="codex-head">
+          <h3>鱼图鉴</h3>
+          <button type="button" class="close" id="fish-close" aria-label="关闭鱼图鉴">✕</button>
+        </div>
+        <div class="col-title">已钓鱼类</div>
+        <div class="col-sub" id="fish-sub">已发现 0 / 15</div>
+        <div class="fish-grid" id="fish-grid"></div>
+      </div>
+    </div>
+    <div id="rod-picker" class="picker">
+      <div class="panel">
+        <div class="codex-head">
+          <h3>鱼竿</h3>
+          <button type="button" class="close" id="rod-close" aria-label="关闭鱼竿图鉴">✕</button>
+        </div>
+        <div class="col-title">钓鱼竿图鉴</div>
+        <div class="rod-grid" id="rod-grid"></div>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/main.ts"></script>
+</body>
+</html>

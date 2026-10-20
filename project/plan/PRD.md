@@ -1,0 +1,164 @@
+# Fishing Cat · 钓鱼桌宠 — 项目 PRD（交接用）
+
+> 用途：新接手的 AI/开发者读完此文件即可快速上手，避免重复踩坑。
+> 原则：只写"决策 + 约定 + 在哪改"，不写逐行实现。代码以仓库为准。
+
+## 1. 这是什么
+Windows 透明无边框**钓鱼桌宠**（Tauri v2 壳）。常驻桌面右上角，点击人物钓鱼、拖动人物移动窗口、右下角汉堡菜单含设置/图鉴/退出。像素风，星露谷味道。
+
+技术栈：**Tauri v2**（Rust 壳 + 系统 WebView2，`src-tauri/`）+ 渲染层 TypeScript（`src/renderer/**`，electron-vite 打包）。无框架、无后端。窗口 `transparent/decorations:false/skipTaskbar/alwaysOnTop`，340×390。
+
+当前版本：**v0.1.6（2026-10-20）**，当前目录及交互见第15节。
+- 根目录：`fishing-codex.exe` 无控制台运行入口、`FishingCat-Setup-0.1.6.exe` 安装包；真实便携程序与加载器配套放在 `project/runtime/`。
+- `project/` 内保留源码、设计、计划、测试和开发配置；`BGM/` 仍放在发行根目录，保存用户自己的音乐。
+- 完整迁移报告见 `lightweight-rewrite-research.md` 第8节。旧版本交付方式保留在后续历史条目中。
+- 升级必须覆盖用户实际安装目录，并核对运行进程路径、版本与内嵌资源；只替换项目根部副本不会更新已安装版本。
+
+## 2. 核心交互约定（最重要，务必守住）
+1. **点击范围**：顶部 30px 空白带不钓鱼；人物身体（含等级徽章下方正方形热区）= 钓鱼；右下工具按钮 = 打开菜单。窗口其余区域：钓鱼会话进行中（蓄力/抛竿/等待/咬钩/小游戏/结算）= 钓鱼；空闲时 = 点击穿透到下方工作窗口（不挡工作）。
+2. **身体手势**：主指针左键 `pointerdown` 立即开始蓄力并捕获指针。普通长按不启动系统移窗；松手抛竿，快速轻点抛近竿，1 秒满力。C/空格与鼠标为独立来源，最后一个来源释放才抛。
+3. **拖窗**：捕获指针相对按下点移动 **>12 CSS px** 才取消鼠标蓄力、释放捕获并调用 Rust `body_drag_begin(gestureId)`，由 `start_dragging()` 完成 OS 原生移窗；≤12px 轻抖不移动窗口。普通点击全程不调用原生 begin/end，也无需弹回。原生开始/结束、移动/松手消息携带手势编号，迟到事件不能结束下一次点击。
+4. **点击穿透**：Windows 使用 `SetWindowRgn`，将 Canvas 可见像素、人物热区、工具按钮取并集；空白天然穿透。指针进入人物无需 16ms 轮询再 IPC 恢复，消除快速移入首击落穿。按住、钓鱼中或打开任意面板立即恢复整窗。窗口形状按内容和 DPI 变化提交，缓存相同形状；形状包含所有可见竿尖、徽章、文字，不能裁图。指针轮询只观察位置，不再切换整窗穿透。旧 Electron 桥仍有兼容 fallback。
+5. **音乐**：设置 → BGM 默认直接扫描项目 `BGM` 文件夹，启动、展开菜单与手动刷新时更新；目录源文件只读，不复制、不提供删除。支持 MP3/OGG/WAV/FLAC，单曲≤50MB；“导入其他音乐文件”保留原 app-data/music 副本库和移除功能。内置两条离线环境音“森林雨声”“机场候机”（含偶尔中文航班播报），与本地音乐互斥、单曲循环；旧三首旋律已删除。存档只记选曲ID，首次真实操作后恢复；静音保留进度，切曲及刷新晚响应不能覆盖新选择。详细目录规则及错误处理见第14节。
+6. **角色**：当前共 10 个可选形象：农夫、橘猫、青蛙、企鹅、巫师、蜡笔小新、樱桃小丸子、皮卡丘、流川枫、哆啦A梦。v0.1.4 替换 v0.1.3 新增的后五项，不叠加成 15 角色；旧选择自动迁移，经验、图鉴、音乐和装备保留。图鉴 3 列内部滚动，名称完整显示；选择即时生效并记忆。
+7. **菜单与升级反馈**：右下 32×32 菜单按钮再次点击关闭当前全部菜单/图鉴/说明；按钮 DOM、悬停、原生窗口 region 使用同一几何。经验真实跨级时播放一次延后升级琶音及 2.8 秒金色像素动画；满级不误报，菜单内不露出动画，跳过结果后保留剩余动画。
+
+## 3. 目录与核心文件
+```
+src-tauri/src/lib.rs      Rust 壳：窗口、托盘、自启(tauri-plugin-autostart)、指针轮询线程、
+                          WindowEvent::Moved 位移转发、带 gestureId 的原生拖动/松手、退出策略(close→hide)
+src-tauri/src/input_region.rs  Windows 原生窗口形状、DPI 转换、GDI 生命周期
+src-tauri/src/music.rs   BGM 目录只读扫描及 app-data 导入库事务
+src/renderer/public/audio/  两条离线合成环境音 Ogg 资源
+src/renderer/core/WindowRegions.ts  可见像素与 DOM 热区并集、合并矩形
+src/renderer/core/LocalMusic.ts  文件导入验证与 WebAudio 单曲循环
+src-tauri/src/main.rs    入口
+src-tauri/tauri.conf.json 壳配置（frontendDist=../out/renderer、beforeBuildCommand=npm run build）
+src/renderer/core/petBridge.ts  壳适配桥：getPetBridge() 自动识别 Tauri，统一 IPC 接口
+src/renderer/core/Game.ts  总装：循环、点击穿透、身体手势、菜单/弹窗、overlay 关闭
+src/renderer/core/Input.ts 输入抽象：鼠标/空格/C 键统一为"按住/按下沿/松开沿"；工具按钮冷静期
+src/renderer/core/gesture.ts  身体手势状态机（以启动原生拖窗前的捕获指针位移判拖窗，纯函数可单测；scripts/gesture-test.ts）
+src/renderer/core/overlayClose.ts  "点面板外关闭"判定（纯函数，可单测）
+src/renderer/fishing/      钓鱼控制器、鱼表、存档(SaveStore)、钓点
+src/renderer/render/       PetView(绘制)、SpriteFactory(像素精灵)、Palette
+src/renderer/shared/       constants.ts(全部调参集中地 T)、types、characters(10 角色)、rods(4 竿)
+design/                   AI 像素设计稿（角色姿态表/鱼/竿/图鉴 UI/结算 UI），视觉重构的唯一基准，索引 design/README.md
+scripts/petshot.ts         无头渲染 PNG 截图（@napi-rs/canvas + esbuild bundle），沙箱内可视化验证
+scripts/difficulty-sim.ts  无头钓鱼难度模拟，改难度后量化捕获率
+```
+
+调参集中地：`src/renderer/shared/constants.ts`（`T`）。改难度/手感先改这里，再用 `scripts/difficulty-sim.ts` 量化捕获率。
+
+视觉基准：`设计规范.md`（网格/色板/姿态/验收清单）+ `design/`（参考图）。新增任何视觉内容前必读。角色/鱼/竿的数据与命名已按设计稿对齐（`characters.ts`/`fishTable.ts`/`rods.ts`，2026-10-19）。
+
+## 4. 已踩坑（禁止重蹈）
+- **不要每次按下立即 `start_dragging()`**：系统会接管捕获/焦点，普通点击和静止长按都受干扰。v0.1.1 的立即原生拖窗方案已被替换；旧“禁止 pointermove 阈值 / 禁止 preventDefault”约束不再适用。现在使用尚未移窗时的 DOM pointer 捕获与阈值，`preventDefault` 阻止兼容鼠标重复链。
+- **不要手工逐帧 IPC setPosition 拖窗**：透明窗有拖影。越阈后仍只由 OS 合成器移动，轻抖前窗口完全不动。
+- **身体层不能设 CSS drag 或 data-tauri-drag-region**：会截走 DOM 事件或启动第二次原生拖动与双击最大化。
+- **不要把原生松手用于普通点击**：普通点击使用捕获 pointerup；仅真实 bodyDragging 才接受匹配 gestureId 的原生补偿。普通 pointercancel/lostcapture/blur 是取消，不伪造 cast；真正原生拖动的 pointercancel/blur 保留记录等待系统松手。
+- **按住前即恢复整窗热区**：不能等下一逻辑帧。不要让 pointer 轮询重新启用 WS_EX_TRANSPARENT；SetWindowRgn 与全窗 ignore 风格不能混用。
+- **身体层只在 idle/charge 且无面板时显示**，其他钓鱼态隐藏，避免盖住咬钩/小游戏/结算；面板期间整窗交互，人物不露边。
+- **形状不能裁可见像素或每帧重复 IPC**：保留 alpha>0 像素，targets 先夹紧；signature 包含 devicePixelRatio，跨 DPI 屏幕必须重发。
+- **音乐不存 localStorage 字节或分发 OST 录音**：目录曲目直接读取原文件，额外导入副本存应用目录，存档只保存 ID。不要让旧扫描/读取/解码/导入响应覆盖新曲目；静音暂停恢复不能把同曲当作再次点击关闭。
+- 原生命令调用 `start_dragging` 前释放状态锁；end/轮询采样均检查手势 ID，启动失败或快速松手补一次终止事件。
+- 单实例 identifier 保持 `com.fishingcodex.pet`；关闭改隐藏。升级结束旧实例并核验实际安装文件，不能只更新根目录 EXE。
+- **WebView2Loader.dll 与 EXE 同目录**；NSIS 安装版会将唯一 UNK bundle marker 改成 NSS，比较二进制应排除这项正常补丁。
+
+## 5. 常用命令
+```
+npm run typecheck    tsc --noEmit
+npm test             跑 gesture / overlay-close / bgm / interaction / local-music / local-music-ui / window-regions / character / level-feedback
+npm run build        electron-vite 渲染层构建（minify）→ out/renderer（tauri build 自动先行调用）
+npm run tauri:build  Rust release 编译 + 打包 → src-tauri/target/release/fishing-codex.exe
+npm run tauri:dev    开发模式（vite dev server + Tauri 壳）
+```
+Tauri 构建需 `export PATH="$HOME/.cargo/bin:/c/msys64/mingw64/bin:$PATH"`（Rust stable GNU + MSYS2 gcc）。NSIS 需从 GitHub 拉 nsis-3.13.zip，本环境代理 502 时跳过即可（便携 exe 不受影响）。
+
+## 6. 当前状态 / 待办
+- 已实现：点击范围、身体捕获指针 + 延迟 OS 拖窗（见第 4 节）、OS 原生拖窗、点击面板外关闭、原生窗口形状穿透、本地 OST 音乐库、工具菜单/图鉴/自启/隐身、音效。v0.1.2 自动化与构建验证见本次发布记录，Windows 真机鼠标操作未完整验收。
+- 当前角色配置以第 13 节 v0.1.4 为准；第 12 节的后五个角色及旧姿态表保留为发布历史。升级反馈与菜单开关沿用 v0.1.3 已验证行为。
+- **设计稿重构（2026-10-19 完成）**：按 `design/` 12 张参考图重构——橘猫 HARRY（橙黄条纹+奶油肚）、蛙威利/企鹅柯罗拉/巫师矮人/农夫 ABIGAIL 五角色；15 种鱼补价格与识别性特征（须/鸭嘴/大眼/叉尾/触手/尖刺/环节）；4 竿分型图标；三栏羊皮纸图鉴（角色/鱼/竿合并为单面板）；结算三态（Common 绿C / Perfect 蓝P+红印章 / Legendary 金L+王冠+NEW+星光）；售价=鱼价×品质倍率。typecheck/单测/构建/petshot 截图均验证通过。
+- **工程清理（2026-10-19 完成）**：删除 dist/（旧 Electron 产物+网易UU垃圾 686MB）、out/、out-test/、miora 旧设计稿、scripts 开发截图 PNG、死脚本（make-icon.mjs/kill-before-build.cjs）、**Electron 主/预加载分支**（src/main、src/preload）与 package.json 的 Electron 配置/依赖。渲染层 bundle 从未压缩 134.82kB → 压缩后 74.48kB。根目录即交付：`fishing-codex.exe` + `WebView2Loader.dll` + `FishingCat-Setup-0.1.0.exe`。
+- 已知风险：① 12 CSS px 位移阈值是经验值，仍须验证不同 DPI/鼠标下的手感；② 原生松开补偿与缩放坐标转换已有自动化回归，但完整真机操作未完成；③ IPC 到达前的极短窗口位移仍需真机观察。v0.1.1 已将基准记录与原生移动合并为单一命令，避免两次 IPC 的次序竞态。
+- GitHub 推送：代理偶发 502，代码在本地 `main`；恢复后 `git fetch origin && git rebase origin/main && git push -u origin main`。
+- 交付偏好：根目录便携 exe（+WebView2Loader.dll）；网络允许时补 NSIS 安装包。
+
+## 7. 给新 AI 的交接建议
+1. 先读 `project/plan/PRD.md`、`project/设计规范.md`、`project/design/README.md` 和 `project/test/`；文中旧版本条目保留历史，现状以最新版本段及源码为准。
+2. 改"手势/点击/穿透"类逻辑，务必先跑 `npm test`（已有可单测的纯模块 gesture/overlayClose）。
+3. 任何"拖窗 vs 钓鱼"的改动，严格遵守第 4 节禁令；改完跑 `npm run build` 至少确认能构建。
+4. GUI 真机行为（拖影、mouseup 是否触发）本沙箱无法验证，交付时明确标注"已验证编译/单测/构建+进程冒烟，未实机点测"。
+5. 改图标只编辑 `scripts/makeicon.cjs`（产出 `build/icon.ico` + `build/logo.png`）；Tauri 窗口图标走 `src-tauri/icons/`，托盘用 `build/icon.ico`。
+
+## 8. 蓄力交互修复（2026-10-20）
+> 历史记录：这是 v0.1.0 的首次修复，后续用户实际运行旧安装版的问题和 v0.1.1 当前实现见第 10 节；现行交互以第 2/4 节为准。
+- 修复 Tauri/WebView2 人物热区沿用 Electron CSS drag 的事件冲突，保留 OS 原生拖窗。
+- 增加原生左键松开补偿，覆盖 pointerup 丢失、pointercancel、重复松开、鼠标与 C 键组合、长按及失焦。当前窗口位移阈值为 12px（与已有 gesture-test 一致）。
+- `scripts/interaction-test.ts` 通过 esbuild 编译运行并接入 `npm test`；旧 strip-only 命令不能编译 Game 依赖中的 TypeScript 参数属性。
+- 自动化覆盖状态和桥接接线；Windows 真机鼠标手感仍须手动验收。
+
+## 9. 全界面视觉整理（2026-10-20）
+- 菜单、帮助、三独立图鉴、小游戏与结算统一暖纸/木框风格；面板标题与关闭按钮固定边距，内容在窗口内滚动，完整 BGM 列表不截字。弹窗打开时隐藏底层人物与HUD，避免露边残片，仅保留工具按钮。
+- 五角色 35 姿态检查：蛙/企鹅脚部衔接、竿描边与竿尖对齐；30 帧竖向鱼保留透明度，图鉴使用同源 12×8 横向鱼图。
+- 等级徽章在窗口内自适应；结算名称、星星、NEW、奖励、XP、升级、解锁与页脚按内容排版；小游戏目标与宝箱进度不越轨道。
+- 鱼竿图鉴本局升级后立即刷新解锁状态，切换装备保留其他竿的等级提示。
+- 验证：`npm test` 150 断言、typecheck、Windows release 构建；340×390 浏览器检查与 Canvas 多场景/明暗背景截图。桌面原生拖窗与鼠标手感仍未实机复测。
+
+## 10. v0.1.1 点击/蓄力复查与升级核验（2026-10-20）
+- **确定根因**：用户实际运行 `C:\Users\Administrator\Fishing Cat 钓鱼桌宠\fishing-codex.exe`，SHA256 为 `C4AB8D2466B48F4DF9650A3D73FAB89D9DDA6F4B9C05FCF0F3E150EE8D02C711`，与 `work/visual-qa/original-release/fishing-codex.exe` 完全一致。静态解压该 EXE 的内嵌 JS，确认仍包含 `style.setProperty("-webkit-app-region","drag")`，DOM 收不到人物按下，表现为点击无反应、长按无蓄力条。
+- **为何启动新版仍像没修复**：同 identifier 的单实例插件把第二次启动转给已经运行的旧进程；旧版与上次根目录构建又都标为 0.1.0。仅复制新 EXE 到项目根目录不足以完成升级。
+- **v0.1.1 历史实现（已由第 2/4 节替换）**：移除身体 `data-tauri-drag-region`；DOM 按下先开始蓄力，Rust 单一 `body_drag_begin` 先记录物理基准/起始 scale、释放锁并确认左键仍按住，再启动 OS 原生拖窗。事件位移统一为 CSS 逻辑 px；系统指针按客户区原点和当前 scale 转换并保留浮点精度。没有逐帧 `setPosition`，也不再由默认 drag 属性触发双击最大化。
+- **升级验收**：结束旧实例，用 v0.1.1 安装包覆盖实际安装目录，再检查运行进程路径、文件版本与安装包有效负载；不得只检查根目录构建成功。NSIS 会把二进制中的 `__TAURI_BUNDLE_TYPE_VAR_UNK` 标记改为 `NSS`，安装版与便携版不能直接要求原始 SHA256 相同；本次已逐字节核实差异仅此 3 字节，内嵌前端与当前构建一致。保留产品 identifier 和存档，不用改身份或允许多版本双开规避。
+- **本次验证**：TypeScript 150 断言通过，typecheck 通过；Rust 11 测试通过。Windows 测试 EXE 需要 Common Controls manifest，验证时只给工作副本补 manifest，未修改系统 DLL。
+- **验证边界**：真机鼠标操作因用户物理 Escape 中止；本次不能标记完整真机验证。点击/长按/松手/拖动/缩放的最终手感仍须按测试清单验收。此记录不代表已经覆盖用户安装目录。
+
+## 11. v0.1.2（2026-10-20）
+- 用户继续反馈人物点击失败，不能将旧安装包当作全部根因。新增失败回归证实普通按下仍立即启动 OS 拖窗；按第 2/4 节重新拆分普通 DOM 按住和系统移窗，并使用原生形状消除穿透恢复延迟。
+- 本地已购 OST 导入方案已实现。音乐库与选曲存档独立；播放层、真实 Game 菜单、Rust 文件事务分别测试。
+- 验证范围记录在 `outputs/v0.1.2更新说明.txt`、`outputs/v0.1.2安装验证.json`；自动回归不等于 Windows 真机点击验收。
+
+
+## 12. v0.1.3（2026-10-20）
+
+> 历史发布记录：本节后五个角色由 v0.1.4 替换，当前列表及存档迁移见第 13 节。
+
+- 升级反馈：真实经验跨级时触发一次 2.8 秒金色像素庆祝，显示最终等级和连升数；升级琶音延后播放以避开捕获音效。关闭结算后继续剩余动画，打开任何菜单时隐藏，遵守音效静音；满级或未升级不触发。
+- 角色增至 10 个：新增棉棉（兔）、枫尾（狐）、团子（熊猫）、栗栗（浣熊）、铜豆（机器人）。各有 7 个 24×40 透明像素姿态、独立剪影及完整竿尖映射，支持选中存档恢复。图鉴保持 3 列，内部滚动，标题和关闭固定。
+- 菜单按钮统一行为：任意菜单/说明/图鉴已打开时，再次点击右下菜单按钮关闭当前全部面板；否则打开一级菜单。设置和 BGM 展开态同时复位。
+- 点击区域：独立语义按钮在覆盖层上方，实际命中为 x=[302,334)、y=[352,384) 的 32×32 方框，包含圆形图标描边及点击余量；DOM、悬停、原生窗口 region 共用几何，人物热区底部止于 y=351。按下和松开均在按钮内才切换；拖离/取消/失焦撤销旧手势，新点击立即可用，不施加冷却。键盘 Enter/Space 可切换，不触发钓鱼。
+- 回归：新增菜单真实捕获/目标/松手路由、10 角色存档恢复与 70 姿态、60 个角色/等级/眨眼原生区域场景，以及升级存档/声音/绘制隔离验证。产物与验收截图位于 `outputs/v0.1.3-qa/`。
+
+- 原生安装版核验补充：发现首次生成窗口 region 时 client/outer 分次取样可保留启动过渡偏移（现场为 +3,+28px），导致原生命中与 DOM 错位。当前窗口固定透明、无边框、无阴影，region 明确以共同原点 (0,0) 缩放，不再依赖启动阶段的非客户区偏移读数；保留分数 DPI 边界取整和负屏幕坐标支持。
+
+## 13. v0.1.4 当前角色规范（2026-10-20）
+
+- 将 v0.1.3 后五个形象替换为蜡笔小新（`shinchan`）、樱桃小丸子（`maruko`）、皮卡丘（`pikachu`）、流川枫（`rukawa`）、哆啦A梦（`doraemon`）；原有 `farmer/cat/frog/penguin/wizard` 保留，图鉴仍为 10 项。
+- 识别特征：小新浓眉圆脸、红衣黄裤；小丸子齐刘海短发、红裙；皮卡丘黑尖长耳、红脸颊与闪电尾；流川枫黑色碎发与湘北 11 号红球衣；哆啦A梦蓝白圆身、红鼻子与铃铛。所有角色按 24×40 网格重绘，保持左朝向、七姿态与完整竿尖映射，禁止仅换色或借用旧轮廓冒充。
+- 旧存档角色按原列表位置迁移：`rabbit→shinchan`、`fox→maruko`、`panda→pikachu`、`raccoon→rukawa`、`robot→doraemon`；已存在的五个基础角色和新的五个 ID 原样恢复。未知 ID 回退至 `farmer`，不改动累计 XP、捕获记录、统计、音乐选择或装备。
+- UI 不新增分支：图鉴来自 `CHARACTER_LIST`，预览来自同一 `SpriteFactory` 精灵；完整显示五字名称“樱桃小丸子”，3 列滚动到第 4 行仍能选择最后角色，标题与关闭按钮固定。人物命中区、32×32 菜单方框和原生 region 沿用现行几何，不随角色换一套坐标。
+- 验收：10 角色 / 70 姿态的透明度、脚底、眨眼、竿尖、配色与存档回归，加上旧 ID 迁移；独立目检新五个待机剪影、七姿态、左侧钓线起点和长名图鉴。当前同源图与验收产物在 `design/char-<id>/` 和 `outputs/v0.1.4-qa/`，实际执行结果以本次发布记录为准。
+- 最终发布：382 项前端回归与 typecheck 通过，Tauri release / NSIS 构建通过。340×390 浏览器实际切换五个新角色、旧 robot 存档迁移、图鉴滚动及长名称、菜单再次点击关闭、哆啦A梦点击抛竿通过，控制台无警告或错误。已覆盖原安装目录并启动 v0.1.4，单实例、响应和原生 region 只读核验通过；本轮未自动注入 Windows 桌面鼠标输入。安装载荷及记录位于 `outputs/v0.1.4安装验证.json` 和 `outputs/v0.1.4-qa/`。
+
+## 14. v0.1.5 BGM 目录与环境音规范
+
+本节为当前音乐行为要求，取代第 2 节和历史发布记录中的旧三首合成曲菜单；此前版本的执行结果仍是历史结果，不能代替本轮验证。
+
+- 默认音乐入口为“设置 → BGM”。桌面端启动、每次展开 BGM 和点击“刷新 BGM 文件夹”均重新读取实际 BGM 目录与导入库；用户只需把已购音频放入该目录，菜单显示完整曲名与当前目录路径。扫描采用本次运行固定的目录：优先当前 EXE 旁已存在的 `BGM` 文件夹，否则使用编译项目根的 `BGM`（本工作区为 `E:\fishing_codex\BGM`）。不依赖工作目录，不创建、复制或修改目录源文件。
+- 目录只扫描第一层的 MP3、OGG、WAV、FLAC，后缀大小写不敏感。子目录、符号链接、空文件、无效文件头与超过 50 MB 的单曲不列入；最多检查 4096 个目录项并按名称排序显示最多 512 首目录曲。目录曲目带 `source: 'folder'`，可播放/停止，应用内没有“移除”入口；原有额外导入功能以“导入其他音乐文件”保留，导入库副本仍可移除且原文件不受影响。
+- 扫描不重启仍存在的当前曲目；确认文件已移走时停止并清除本地选曲存档，显示可读提示。读取失败显示可读错误并保留已有列表和选曲；旧扫描/读取/解码/导入响应不能覆盖更新的用户选择或新导入结果。关闭背景音乐及静音行为继续遵守现有播放器契约。
+- 内置 BGM 替换为两种循环立体声环境音：森林雨（`forest-rain`）和机场（`airport`）。环境音使用预制 Ogg 音频经 WebAudio 解码和单曲循环，不提供旧 `spring/summer/fall` 合成旋律，不把旧选曲自动映射到另一种声音。旧选曲清空为“仅钓鱼音效”，本地选曲、角色、经验、图鉴和装备继续保留。
+- 本地目录/导入文件与环境音互斥，选一项应停止另一项；首次真实用户操作前不自动解码播放。静音暂停并保存进度，恢复使用已缓存音频，避免重读或叠放。载入失败要清理当前失效选曲并展示可读错误。
+- 验收分开记录：真实 Game 菜单与存档自动回归、播放器异步与互斥回归、Rust 真实临时目录回归、340×390 浏览器布局/文件列表验证、构建安装核验，以及 Windows 实际听感/文件系统/鼠标验收。仅执行过的项目可标记通过；自动化字节与节点断言不代表真人听过环境声或完成系统文件选择。
+
+- v0.1.5最终发布：357项前端回归、typecheck、17项Rust音乐目录验证及cargo check通过，release/NSIS通过。原安装路径已更新并启动v0.1.5，单实例、响应和原生热区只读检查通过；安装和便携程序内嵌的两条Ogg均与源码资源逐字节匹配。浏览器MP3/Ogg解码、静音/互斥/停止/菜单边界通过。记录见outputs/v0.1.5安装验证.json及outputs/v0.1.5-qa。本轮未自动注入Windows鼠标输入或主观聆听。
+
+## 15. v0.1.6 当前交付（2026-10-20）
+
+- 根部只保留两个可见文件：`fishing-codex.exe` 无控制台启动入口与 `FishingCat-Setup-0.1.6.exe` 安装包。源码、设计、计划、测试、依赖和真实运行文件统一位于 `project/`；旧安装包在本地 `outputs/archive/`。
+- 真正的便携运行程序与 `WebView2Loader.dll` 配套放在 `project/runtime/`；根启动器根据自身位置启动，工作目录变化不影响资源定位。`BGM/` 仍在发行根目录，用户音乐和本地缓存不上传仓库。
+- `Ctrl+Shift+H` 全局切换隐身，长按不重复触发；设置显示注册失败状态，菜单开关仍可用。隐身取消人物蓄力并移除人物热区，菜单保留。
+- 形象卡片去掉“点击切换”，当前形象保留“使用中”。角色列表以 `shared/characters.ts` 当前10项为准。
+- BGM 从三级展开改成独立音乐面板，显示环境音与我的音乐；自动更新曲库，只保留选曲、停止、添加音乐。面板不显示目录路径及刷新操作。
+- 森林雨声改为柔和、响度平稳的绵雨；机场在0.15秒提示、1.15秒播报，每60秒一次。两条120秒循环音景均内嵌打包，用户已购OST仍只读本地文件。
+- 宝箱及鱼类经济仅规划，见同目录《宝箱与鱼类收益系统方案.md》，本轮未实现钱包、材料或商店。
+- 开发从 `project/` 运行 npm/typecheck/test/tauri build。当前发行与安装路径检查记录保存在本地 `outputs/`，不随源码上传。
