@@ -63,6 +63,9 @@ export interface PetBridge extends Partial<LocalMusicBridge> {
 
 /** 游戏总装：透明画布、循环、输入、控制器、桌宠视图 */
 export class Game {
+  /** 提醒周期：开关只保存在存档中，计时从本次打开桌宠开始。 */
+  private static readonly WATER_REMINDER_SECONDS = 60 * 60
+  private static readonly SEDENTARY_REMINDER_SECONDS = 50 * 60
   private canvas: HTMLCanvasElement
   private ctx: CanvasRenderingContext2D
   private loop: Loop
@@ -131,6 +134,13 @@ export class Game {
   private bodyDragging = false
   /** 看门狗定时器：原生拖窗结束后 mouseup 若被系统吞掉，兜底清理手势记账 */
   private bodyWatchdog: number | null = null
+  private waterReminderElapsed = 0
+  private sedentaryReminderElapsed = 0
+  private reminderOverlay: HTMLElement | null = null
+  private reminderDialog: HTMLElement | null = null
+  private reminderTitle: HTMLElement | null = null
+  private reminderText: HTMLElement | null = null
+  private reminderKind: 'water' | 'sedentary' | null = null
 
   /** 主进程桥（拖拽/退出/自启/点击穿透） */
   private bridge: PetBridge | undefined
@@ -298,6 +308,7 @@ export class Game {
       y >= t.y - t.hitHalf && y < t.y + t.hitHalf
     this.input.onTools = () => this.toggleMenuButton()
     this.buildToolsMenu(bridge)
+    this.buildReminderOverlay()
     const toolsButton = document.createElement('button')
     toolsButton.id = 'tools-toggle'
     toolsButton.type = 'button'
@@ -368,6 +379,7 @@ export class Game {
     const release = this.input.consumeRelease()
     this.controller.setInput(this.input.held, press, release)
     this.controller.update(dt, this.time)
+    this.updateReminders(dt)
   }
 
   private frame(): void {
@@ -401,8 +413,8 @@ export class Game {
   }
 
   /** 构建工具菜单（DOM 覆盖层）：
-   *  一级目录 = 玩法相关：玩法说明 / 形象图鉴 / 钓鱼竿
-   *  二级「设置 ▸」= 音效 / 隐身 / 开机自启 / 退出
+   *  一级目录 = 玩法相关 + BGM：玩法说明 / 图鉴 / BGM
+   *  二级「设置 ▸」= 音效 / 隐身 / 自启 / 喝水提醒 / 久坐提醒 / 退出
    */
   private buildToolsMenu(bridge: PetBridge | undefined): void {
     const overlay = document.createElement('div')
@@ -439,11 +451,9 @@ export class Game {
     settingsArrow.textContent = '▸'
     settingsBtn.append(settingsLabel, settingsArrow)
     settingsBtn.setAttribute('aria-expanded', 'false')
-    menu.appendChild(settingsBtn)
     const sub = document.createElement('div')
     sub.id = 'tools-submenu'
     sub.className = 'submenu'
-    menu.appendChild(sub)
 
     const subBtn = (label: string, fn: () => void) => {
       const b = document.createElement('button')
@@ -475,13 +485,17 @@ export class Game {
     soundBtn.title = 'M'
     soundBtn.setAttribute('aria-keyshortcuts', 'M')
 
-    // 音乐用独立面板，避免三级菜单挤占设置操作和曲名。
+    // BGM 是一级入口；曲目列表仍用独立面板，避免把设置挤成长三级菜单。
     const bgmBtn = document.createElement('button')
     bgmBtn.className = 'submenu-parent'
     const bgmCurrent = document.createElement('span')
     bgmCurrent.className = 'bgm-current-name'
     bgmBtn.appendChild(bgmCurrent)
-    sub.appendChild(bgmBtn)
+    // 直接挂在一级菜单（测试用的轻量 DOM 也只实现 appendChild）。
+    menu.appendChild(bgmBtn)
+    // BGM 后再放设置，一级菜单顺序为：玩法/图鉴 → BGM → 设置。
+    menu.appendChild(settingsBtn)
+    menu.appendChild(sub)
     const bgmSub = document.createElement('div')
     bgmSub.id = 'bgm-list'
     bgmSub.className = 'picker'
@@ -667,6 +681,22 @@ export class Game {
       bridge?.setAutostart(this.save.data.autostart)
     })
     setToggleLabel(autoBtn, '开机自启', this.save.data.autostart ?? false)
+    const waterBtn = subBtn('', () => {
+      this.save.data.waterReminder = !(this.save.data.waterReminder ?? false)
+      this.waterReminderElapsed = 0
+      this.save.save()
+      setToggleLabel(waterBtn, '喝水提醒', this.save.data.waterReminder)
+    })
+    setToggleLabel(waterBtn, '喝水提醒', this.save.data.waterReminder ?? false)
+    waterBtn.title = '每 60 分钟提醒一次'
+    const sedentaryBtn = subBtn('', () => {
+      this.save.data.sedentaryReminder = !(this.save.data.sedentaryReminder ?? false)
+      this.sedentaryReminderElapsed = 0
+      this.save.save()
+      setToggleLabel(sedentaryBtn, '久坐提醒', this.save.data.sedentaryReminder)
+    })
+    setToggleLabel(sedentaryBtn, '久坐提醒', this.save.data.sedentaryReminder ?? false)
+    sedentaryBtn.title = '每 50 分钟提醒一次'
     // 退出也收进设置二级目录
     subBtn('退出', () => bridge?.quit())
 
@@ -676,6 +706,8 @@ export class Game {
       settingsBtn.setAttribute('aria-expanded', String(open))
       settingsArrow.textContent = open ? '◂' : '▸'
       setToggleLabel(soundBtn, '音效', !this.audio.muted)
+      setToggleLabel(waterBtn, '喝水提醒', this.save.data.waterReminder ?? false)
+      setToggleLabel(sedentaryBtn, '久坐提醒', this.save.data.sedentaryReminder ?? false)
       if (open) {
         sub.classList.add('visible')
         this.fitMenuToViewport(sub, settingsBtn)
@@ -691,6 +723,83 @@ export class Game {
     this.toolsSubmenu = sub
     this.toolsMenuEl = menu
     this.toolsSettingsBtn = settingsBtn
+  }
+
+  /** 创建提醒弹层。提示使用独立 DOM，不会把文字绘制到人物画布上。 */
+  private buildReminderOverlay(): void {
+    const stage = document.getElementById('stage') as HTMLElement | null
+    if (!stage) return
+    const overlay = document.createElement('div')
+    overlay.id = 'reminder-overlay'
+    overlay.className = 'reminder-overlay'
+    overlay.setAttribute('aria-hidden', 'true')
+    const dialog = document.createElement('div')
+    dialog.className = 'reminder-dialog'
+    dialog.setAttribute('role', 'alertdialog')
+    dialog.setAttribute('aria-modal', 'true')
+    const title = document.createElement('h3')
+    const text = document.createElement('p')
+    const dismiss = document.createElement('button')
+    dismiss.type = 'button'
+    dismiss.className = 'reminder-dismiss'
+    dismiss.textContent = '知道了'
+    dismiss.addEventListener('click', (e) => {
+      e.stopPropagation()
+      this.dismissReminder()
+    })
+    dialog.append(title, text, dismiss)
+    overlay.appendChild(dialog)
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) this.dismissReminder()
+    })
+    stage.appendChild(overlay)
+    this.reminderOverlay = overlay
+    this.reminderDialog = dialog
+    this.reminderTitle = title
+    this.reminderText = text
+  }
+
+  private updateReminders(dt: number): void {
+    if (this.save.data.waterReminder) {
+      this.waterReminderElapsed += dt
+      if (this.waterReminderElapsed >= Game.WATER_REMINDER_SECONDS && !this.reminderKind) {
+        this.waterReminderElapsed = 0
+        this.showReminder('water')
+      }
+    } else {
+      this.waterReminderElapsed = 0
+    }
+    if (this.save.data.sedentaryReminder) {
+      this.sedentaryReminderElapsed += dt
+      if (this.sedentaryReminderElapsed >= Game.SEDENTARY_REMINDER_SECONDS && !this.reminderKind) {
+        this.sedentaryReminderElapsed = 0
+        this.showReminder('sedentary')
+      }
+    } else {
+      this.sedentaryReminderElapsed = 0
+    }
+  }
+
+  private showReminder(kind: 'water' | 'sedentary'): void {
+    if (!this.reminderOverlay || !this.reminderTitle || !this.reminderText) return
+    this.reminderKind = kind
+    const water = kind === 'water'
+    this.reminderTitle.textContent = water ? '喝水时间' : '起来活动一下'
+    this.reminderText.textContent = water ? '大姐姐，该喝水啦' : '大姐姐，站起来走走吧'
+    this.reminderOverlay.classList.add('visible')
+    this.reminderOverlay.setAttribute('aria-hidden', 'false')
+    this.updateDragWhileOverlay()
+    // 只为小新保留语音接口；没有随包提供授权音频时 AudioBus 会静默失败。
+    this.audio.playReminderVoice(kind, this.skin)
+    const dismiss = this.reminderDialog?.querySelector('button') as HTMLButtonElement | null
+    dismiss?.focus?.()
+  }
+
+  private dismissReminder(): void {
+    this.reminderKind = null
+    this.reminderOverlay?.classList.remove('visible')
+    this.reminderOverlay?.setAttribute('aria-hidden', 'true')
+    this.updateDragWhileOverlay()
   }
 
   private toggleStealth(): void {
@@ -818,15 +927,12 @@ export class Game {
   /**
    * 工具菜单纵向适配视口。
    *
-   * 窗口只有 340×390（减去标题栏/任务栏后可视高度更小），三级菜单（设置 ▸ BGM ▸ 曲目）
-   * 叠起来会超过窗口高度。历史教训：
-   *   ① 三级级联横弹 → 横向溢出（x=-24，字被裁掉）；
-   *   ② 改就地展开 → 纵向溢出（y=-84，顶部三项顶出窗口）；
-   *   ③ 只给二级菜单算位置 → 底边越界（392 > 390，「退出」被切）；
-   *   ④ BGM 改 2×2 网格压缩高度 → 曲名被省略号截断，层级也看不出来。
+   * 窗口只有 340×390（减去标题栏/任务栏后可视高度更小），设置二级菜单
+   * 需要与一级菜单一起适配视口。BGM 已移到一级菜单并使用独立音乐面板，
+   * 不再与设置项叠成三级菜单。
    *
    * 最终策略：**不压缩内容**（曲名一行放得下），改为整体自适应——
-   *   · 测出「一级菜单 + 已展开的二级菜单」的真实总高；
+   *   · 测出「一级菜单 + 已展开的设置二级菜单」的真实总高；
    *   · 放不下就把整块上移（`--menu-lift`），最多移到窗口顶边留 6px；
    *   · 上移仍放不下，才收紧二级菜单的 `--sub-max-h` 让其内部滚动（兜底，正常不触发）。
    */
@@ -940,10 +1046,11 @@ export class Game {
     this.updatePetLayers()
   }
 
-  /** 是否任意弹窗（工具菜单/玩法说明/形象/鱼图鉴/鱼竿）已打开 */
+  /** 是否任意弹窗（工具菜单/图鉴/音乐/提醒）已打开 */
   private anyOverlayOpen(): boolean {
     return (
       this.toolsOpen ||
+      !!this.reminderOverlay?.classList.contains('visible') ||
       !!this.musicPicker?.classList.contains('visible') ||
       !!this.helpOverlay?.classList.contains('visible') ||
       !!this.charPicker?.classList.contains('visible') ||

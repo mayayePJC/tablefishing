@@ -7,7 +7,7 @@
   "scripts": {
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types scripts/gesture-test.ts && node --experimental-strip-types scripts/overlay-close-test.ts && node scripts/run-bgm.mjs && node scripts/run-interaction.mjs && node scripts/run-local-music.mjs && node scripts/run-local-music-ui.mjs && node scripts/run-window-regions.mjs && node scripts/run-character.mjs && node scripts/run-level-feedback.mjs",
+    "test": "node --experimental-strip-types scripts/gesture-test.ts && node --experimental-strip-types scripts/overlay-close-test.ts && node scripts/run-fish-boundary.mjs && node scripts/run-bgm.mjs && node scripts/run-interaction.mjs && node scripts/run-local-music.mjs && node scripts/run-local-music-ui.mjs && node scripts/run-window-regions.mjs && node scripts/run-character.mjs && node scripts/run-level-feedback.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"

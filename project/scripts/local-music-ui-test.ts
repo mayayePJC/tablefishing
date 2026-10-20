@@ -132,8 +132,7 @@ function fixture(tracks: LocalMusicTrack[] = [], saved: object = {}, options: {
   const select = (files: File[]) => { const input = byId('music-file-input'); input.files = files; input.fire('change') }
   const openBgm = () => {
     if (!game.toolsOpen) game.toggleTools(true)
-    if (!game.toolsSubmenu.classList.contains('visible')) game.toolsSettingsBtn.click()
-    if (!byId('bgm-list').classList.contains('visible')) game.toolsSubmenu.querySelector('.submenu-parent').click()
+    if (!byId('bgm-list').classList.contains('visible')) game.toolsMenuEl.querySelector('.submenu-parent').click()
   }
   const closeBgm = () => {
     if (byId('bgm-list').classList.contains('visible')) game.toggleMusic(false)
@@ -169,8 +168,7 @@ async function main() {
     const f = fixture([trackA])
     await flush()
     f.game.toggleTools(true)
-    f.game.toolsSettingsBtn.click()
-    f.game.toolsSubmenu.querySelector('.submenu-parent').click()
+    f.game.toolsMenuEl.querySelector('.submenu-parent').click()
     await flush()
     f.byId('music-import').click()
     assert.equal(f.byId('music-file-input').clicks, 1)
@@ -475,6 +473,44 @@ async function main() {
     assert.equal(f.game.save.data.localBgm, null)
     assert.match(f.byId('music-status').textContent, /暂时无法读取/)
     assert.equal(f.byId('music-status').classList.contains('error'), true)
+  })
+  await test('设置二级菜单提供喝水和久坐提醒开关，并按周期弹出对应提示', async () => {
+    const f = fixture()
+    await flush()
+    f.game.toggleTools(true)
+    const settings = f.game.toolsSettingsBtn as Element
+    assert.ok(settings, '设置按钮应已创建')
+    settings.click()
+    const submenu = f.game.toolsSubmenu as Element
+    assert.equal(submenu.classList.contains('visible'), true)
+    const water = submenu.children.find((button) => button.textContent.includes('喝水提醒'))
+    const sedentary = submenu.children.find((button) => button.textContent.includes('久坐提醒'))
+    assert.ok(water, '设置中应显示喝水提醒')
+    assert.ok(sedentary, '设置中应显示久坐提醒')
+    assert.match(water!.textContent, /关/)
+    assert.match(sedentary!.textContent, /关/)
+
+    water!.click()
+    assert.equal(f.game.save.data.waterReminder, true)
+    assert.match(water!.textContent, /开/)
+    f.game.updateReminders(60 * 60 - 1)
+    assert.equal(f.byId('reminder-overlay').classList.contains('visible'), false)
+    f.game.updateReminders(1)
+    const reminder = f.byId('reminder-overlay')
+    assert.equal(reminder.classList.contains('visible'), true)
+    assert.equal(reminder.getAttribute('aria-hidden'), 'false')
+    assert.match(reminder.textContent, /大姐姐，该喝水啦/)
+    const dismiss = reminder.querySelector('.reminder-dismiss')!
+    dismiss.click()
+    assert.equal(reminder.classList.contains('visible'), false)
+
+    sedentary!.click()
+    assert.equal(f.game.save.data.sedentaryReminder, true)
+    f.game.updateReminders(50 * 60 - 1)
+    assert.equal(reminder.classList.contains('visible'), false)
+    f.game.updateReminders(1)
+    assert.equal(reminder.classList.contains('visible'), true)
+    assert.match(reminder.textContent, /大姐姐，站起来走走吧/)
   })
   console.log(`\n本地音乐菜单/存档：${passed} 项通过，${failed} 项失败`)
   process.exitCode = failed ? 1 : 0

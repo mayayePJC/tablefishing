@@ -964,7 +964,11 @@ function paintCompanion(pc: PixelCanvas, sil: Sil, tones: Record<number, Tone>):
       const light = (dist[x < w - 1 ? i + 1 : i] - dist[x > 0 ? i - 1 : i])
         + (dist[y < h - 1 ? i + w : i] - dist[y > 0 ? i - w : i])
       const seam = (right && right !== id) || (bottom && bottom !== id)
-      pc.px(x, y, tones[id][seam || light < -0.35 ? 2 : light > 0.35 ? 1 : 0])
+      // A one-pixel ambient-occlusion rim keeps the small faces, collars and
+      // sleeves readable after the 2x UI upscale.  Keep the palette quantised
+      // to the three authored tones so the sprites stay crisp and cheap.
+      const rim = dist[i] < 1.28
+      pc.px(x, y, tones[id][seam || rim || light < -0.35 ? 2 : light > 0.35 ? 1 : 0])
     }
   }
 }

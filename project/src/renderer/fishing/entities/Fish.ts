@@ -2,6 +2,15 @@ import { T } from '../../shared/constants'
 import type { FishBehavior, FishDef } from '../../shared/types'
 import type { Rng } from '../../core/Rng'
 
+/** 物理边界不变；鱼的目标位置保留内缩，避免贴墙停留。 */
+function targetBounds(): { min: number; max: number } {
+  const half = 4
+  return {
+    min: half + T.FISH_EDGE_MARGIN,
+    max: T.TRACK_H - half - T.FISH_EDGE_MARGIN
+  }
+}
+
 const HALF = 4 // 鱼图标半高（12×8 旋转后 8×12）
 
 /**
@@ -85,13 +94,15 @@ export class Fish {
 
     // 5) 位移与边界
     this.pos += this.vel * dt
-    if (this.pos > T.TRACK_H - HALF) {
+    if (this.pos >= T.TRACK_H - HALF) {
       this.pos = T.TRACK_H - HALF
-      this.vel *= -0.3
+      this.vel = -Math.max(Math.abs(this.vel) * 0.3, T.FISH_SPEED_MIN * 0.35)
+      this.pickTarget()
     }
-    if (this.pos < HALF) {
+    if (this.pos <= HALF) {
       this.pos = HALF
-      this.vel *= -0.3
+      this.vel = Math.max(Math.abs(this.vel) * 0.3, T.FISH_SPEED_MIN * 0.35)
+      this.pickTarget()
     }
   }
 
@@ -108,6 +119,7 @@ export class Fish {
     if (this.def.behavior === 'smooth') amp *= 0.7
 
     const dir = this.rng.chance(0.5) ? -1 : 1
-    this.target = clamp(this.pos + dir * amp * this.rng.next(), HALF, T.TRACK_H - HALF)
+    const bounds = targetBounds()
+    this.target = clamp(this.pos + dir * amp * this.rng.next(), bounds.min, bounds.max)
   }
 }

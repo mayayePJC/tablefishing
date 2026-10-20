@@ -15,6 +15,16 @@ const BAR_X = 16
 const CAT_DW = T.PLAYER_W * T.PLAYER_SCALE
 const CAT_DH = T.PLAYER_H * T.PLAYER_SCALE
 
+/**
+ * A tiny shared animation language for every skin.  The sprites stay crisp
+ * pixel art, while these two-pixel glints give the idle pose a little life and
+ * make the character cards feel like companions instead of static stickers.
+ */
+const SKIN_GLINT: Record<CharacterSkin, string> = {
+  farmer: '#f4d36c', cat: '#f5b54b', frog: '#b9e77d', penguin: '#cbe9ff', wizard: '#d7b6ff',
+  shinchan: '#f3c36b', maruko: '#f4a5a5', pikachu: '#fff09a', rukawa: '#ffd2a5', doraemon: '#f4d884'
+}
+
 function mix(a: string, b: string, t: number): string {
   const pa = parseInt(a.slice(1), 16)
   const pb = parseInt(b.slice(1), 16)
@@ -97,7 +107,10 @@ export class PetView {
     if (showPet) {
       ctx.fillStyle = 'rgba(0,0,0,0.22)'
       ctx.beginPath()
-      ctx.ellipse(px, py - 1, CAT_DW * 0.42, 5, 0, 0, Math.PI * 2)
+      // Breathing shadow: a barely perceptible pulse is enough to make every
+      // idle skin feel grounded and alive without moving the rod tip/ hitbox.
+      const breath = 1 + Math.sin(state.time * 2.2) * 0.035
+      ctx.ellipse(px, py - 1, CAT_DW * 0.42 * breath, 5, 0, 0, Math.PI * 2)
       ctx.fill()
     }
 
@@ -135,6 +148,7 @@ export class PetView {
     // 垂钓者（隐身模式下不绘制人物与 lev 徽章）
     if (showPet) {
       this.drawCat(ctx, state)
+      this.drawCharacterAccent(ctx, state)
       this.drawLevelBadge(ctx, state)
     }
 
@@ -338,6 +352,37 @@ export class PetView {
     const dx = Math.round(state.playerX - CAT_DW / 2)
     const dy = Math.round(state.playerFootY - CAT_DH)
     ctx.drawImage(img, dx, dy, Math.round(CAT_DW), Math.round(CAT_DH))
+  }
+
+  /**
+   * Small, skin-coloured idle glints.  They are deliberately drawn outside
+   * the sprite so the seven pose masks and the fishing geometry remain
+   * unchanged.  During a cast the same pixels become a short motion trail.
+   */
+  private drawCharacterAccent(ctx: CanvasRenderingContext2D, state: SceneState): void {
+    const color = SKIN_GLINT[this.skin] ?? PAL.chestGold
+    const x = Math.round(state.playerX - CAT_DW * 0.5)
+    const y = Math.round(state.playerFootY - CAT_DH * 0.9)
+    ctx.save()
+    ctx.fillStyle = color
+    if (state.playerPose === 'idle') {
+      const pulse = 0.26 + (Math.sin(state.time * 2.6) + 1) * 0.16
+      ctx.globalAlpha = pulse
+      ctx.fillRect(x + 5, y + 3, 2, 2)
+      ctx.globalAlpha = pulse * 0.7
+      ctx.fillRect(x + Math.round(CAT_DW * 0.72), y + 12, 2, 2)
+      if (Math.sin(state.time * 2.6) > 0.35) {
+        ctx.globalAlpha = pulse * 0.55
+        ctx.fillRect(x + Math.round(CAT_DW * 0.63), y - 2, 1, 1)
+      }
+    } else if (state.playerPose === 'cast' && (state.playerFrame | 0) > 0) {
+      // A few trailing pixels reinforce the backswing/forward motion without
+      // touching the actual rod line or the click region.
+      ctx.globalAlpha = 0.24
+      const trail = Math.min(2, state.playerFrame | 0)
+      for (let i = 0; i < trail; i++) ctx.fillRect(x + 8 + i * 4, y + 21 - i * 3, 2, 1)
+    }
+    ctx.restore()
   }
 
   private rodTipWorld(state: SceneState): [number, number] {

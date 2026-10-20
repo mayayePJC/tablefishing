@@ -34,6 +34,23 @@
     /* 一级、设置两列固定总宽度；音乐打开独立面板；Game 计算几何位置。 */
     #tools-overlay { position: absolute; inset: 0; z-index: 20; display: none; }
     #tools-overlay.visible { display: block; }
+    #reminder-overlay {
+      position: absolute; inset: 0; z-index: 35; display: none; align-items: center; justify-content: center;
+      padding: 12px; pointer-events: auto;
+    }
+    #reminder-overlay.visible { display: flex; }
+    .reminder-dialog {
+      width: min(272px, calc(100% - 16px)); padding: 14px 14px 12px; color: var(--ink);
+      background: var(--paper); border: var(--frame); border-radius: 2px; box-shadow: var(--panel-shadow);
+      text-align: center;
+    }
+    .reminder-dialog h3 { margin: 0 0 6px; color: var(--wood-dark); font-size: 16px; line-height: 1.4; }
+    .reminder-dialog p { margin: 0 0 12px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+    .reminder-dismiss {
+      min-width: 92px; min-height: 30px; padding: 5px 12px; color: var(--paper-light);
+      background: var(--wood); border: 1px solid var(--wood-dark); border-radius: 1px;
+    }
+    .reminder-dismiss:hover { background: var(--wood-light); }
     #tools-menu, .submenu {
       background: var(--paper); border: var(--frame); border-radius: 2px;
       box-shadow: var(--panel-shadow); padding: 5px; gap: 4px;
@@ -210,7 +227,7 @@
           </div>
           <div class="help-note">
             <p>按住人物并拖动，可移动桌宠。<br><kbd>C</kbd> / <kbd>空格</kbd> 钓鱼，<kbd>M</kbd> 静音，<kbd>H</kbd> 隐身。</p>
-            <p>工具菜单 → 设置 → BGM 可选背景音乐，默认仅钓鱼音效。需要退出时，选择设置中的「退出」。</p>
+            <p>工具菜单 → BGM 可选背景音乐，默认仅钓鱼音效。喝水和久坐提醒在设置中开启；需要退出时，选择设置中的「退出」。</p>
           </div>
         </div>
         <p class="help-footer">点击面板外，也可以关闭说明</p>

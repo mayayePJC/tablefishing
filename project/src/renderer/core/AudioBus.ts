@@ -28,6 +28,7 @@ export class AudioBus {
   } | null = null
   private lastPlayed = new Map<string, number>()
   private _muted = false
+  private reminderVoice: HTMLAudioElement | null = null
 
   constructor() {
     this.bgm.onError = (message) => this.onMusicError?.(message)
@@ -40,6 +41,7 @@ export class AudioBus {
 
   setMuted(m: boolean): void {
     this._muted = m
+    if (m) this.reminderVoice?.pause()
     if (this.master && this.ctx) {
       this.master.gain.setTargetAtTime(m ? 0.0001 : 0.6, this.ctx.currentTime, 0.02)
     }
@@ -82,6 +84,31 @@ export class AudioBus {
     if (id && !deferUntilGesture) this.unlock()
     this.localMusic.setPaused(this._muted)
     this.localMusic.play(id, load)
+  }
+
+  /**
+   * 播放可选的小新提醒语音。语音文件由发行包提供时才会加载，
+   * 不在源码中内嵌或联网下载未授权原声；缺少文件时安静失败。
+   */
+  playReminderVoice(kind: 'water' | 'sedentary', character: string): void {
+    if (character !== 'shinchan' || this._muted || typeof Audio === 'undefined') return
+    this.reminderVoice?.pause()
+    const file = kind === 'water' ? 'shinchan-water.ogg' : 'shinchan-break.ogg'
+    const audio = new Audio(`./audio/${file}`)
+    audio.preload = 'auto'
+    audio.volume = 0.8
+    audio.addEventListener('error', () => {
+      if (this.reminderVoice === audio) this.reminderVoice = null
+    }, { once: true })
+    this.reminderVoice = audio
+    try {
+      const playback = audio.play()
+      void playback?.catch(() => {
+        if (this.reminderVoice === audio) this.reminderVoice = null
+      })
+    } catch {
+      if (this.reminderVoice === audio) this.reminderVoice = null
+    }
   }
 
   private get t(): number {

@@ -716,7 +716,7 @@ async function main() {
     g.toolsSubmenu.classList.add('visible')
     g.toolsSettingsBtn.setAttribute('aria-expanded', 'true')
     const list = g.musicPicker as MockElement
-    const bgmParent = g.toolsSubmenu.querySelector('.submenu-parent') as MockElement
+    const bgmParent = g.toolsMenuEl.querySelector('.submenu-parent') as MockElement
     list.classList.add('visible')
     bgmParent.fire('click', event({ target: bgmParent }))
     clickAt(g, 318, 368, toolsTarget(g))

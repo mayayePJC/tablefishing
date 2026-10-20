@@ -65,6 +65,8 @@ export const T = {
   FISH_SPEED_MAX: 240,
   FISH_SPRING_K: 5.5,
   FISH_DAMPING: 5.5,
+  /** 鱼的目标点离轨道上下沿保留的安全距离（轨道单位）。 */
+  FISH_EDGE_MARGIN: 72,
   /** 变向幅度范围（轨道单位）：低难鱼小幅、高难鱼大幅，再乘心情浮动 */
   DART_AMP_MIN: 70,
   DART_AMP_MAX: 185,
@@ -145,6 +147,7 @@ export const TUNABLE_KEYS = [
   'FISH_SPEED_MAX',
   'FISH_SPRING_K',
   'FISH_DAMPING',
+  'FISH_EDGE_MARGIN',
   'DART_AMP_MIN',
   'DART_AMP_MAX',
   'DART_INTERVAL_CALM',
