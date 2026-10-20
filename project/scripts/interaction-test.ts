@@ -52,6 +52,7 @@ class MockElement {
   attributes = new Map<string, string>()
   listeners: Listeners = {}
   capturedPointers = new Set<number>()
+  parentElement: MockElement | null = null
   width = 0
   height = 0
   clientWidth = 340
@@ -61,7 +62,15 @@ class MockElement {
   hasAttribute(name: string) { return this.attributes.has(name) }
   getAttribute(name: string) { return this.attributes.get(name) ?? null }
   append(...children: MockElement[]) { children.forEach((child) => this.appendChild(child)) }
-  appendChild(child: MockElement) { this.children.push(child); return child }
+  appendChild(child: MockElement) { this.children.push(child); child.parentElement = this; return child }
+  closest(_selector: string): MockElement | null {
+    for (let element: MockElement | null = this; element; element = element.parentElement) {
+      const editable = element.getAttribute('contenteditable')
+      if (['input', 'textarea', 'select'].includes(element.tagName.toLowerCase())
+        || (editable !== null && editable !== 'false') || element.getAttribute('role') === 'textbox') return element
+    }
+    return null
+  }
   addEventListener(type: string, cb: (event: any) => void) { (this.listeners[type] ||= []).push(cb) }
   removeEventListener(type: string, cb: (event: any) => void) {
     this.listeners[type] = (this.listeners[type] ?? []).filter((listener) => listener !== cb)
@@ -89,6 +98,7 @@ const elements: Record<string, MockElement> = {}
 const created: MockElement[] = []
 const documentListeners: Listeners = {}
 const windowListeners: Listeners = {}
+let documentFocused = true
 const documentShim: any = {
   createElement(tag: string) {
     if (tag === 'canvas') return createCanvas(1, 1)
@@ -106,7 +116,10 @@ const documentShim: any = {
   removeEventListener(type: string, cb: (event: any) => void) {
     documentListeners[type] = (documentListeners[type] ?? []).filter((listener) => listener !== cb)
   },
-  hidden: false
+  hidden: false,
+  visibilityState: 'visible',
+  activeElement: null,
+  hasFocus: () => documentFocused
 }
 function audioParam() {
   return { value: 0, setTargetAtTime: noop, setValueAtTime: noop, exponentialRampToValueAtTime: noop,
@@ -168,8 +181,6 @@ const bridgeCalls = {
 let bodyMovedCb: ((position: BodyEvent) => void) | null = null
 let bodyReleasedCb: ((position: BodyEvent) => void) | null = null
 let pointerMoveCb: ((position: Pos) => void) | null = null
-let stealthToggleCb: (() => void) | null = null
-let shortcutStatus = { registered: true, shortcut: 'H', error: null as string | null }
 const mockBridge = {
   bodyDragBegin: (gestureId: number) => { bridgeCalls.bodyDragBegin++; bridgeCalls.beginIds.push(gestureId) },
   bodyDragEnd: (gestureId: number) => { bridgeCalls.bodyDragEnd++; bridgeCalls.endIds.push(gestureId) },
@@ -178,8 +189,6 @@ const mockBridge = {
   snapBack: () => { bridgeCalls.snapBack++ },
   onPointerInit: noop,
   onPointerMove: (cb: (position: Pos) => void) => { pointerMoveCb = cb },
-  onStealthToggle: (cb: () => void) => { stealthToggleCb = cb },
-  stealthShortcutInfo: async () => ({ ...shortcutStatus }),
   markReady: () => { bridgeCalls.markReady++ },
   quit: noop,
   openDevTools: noop,
@@ -189,6 +198,7 @@ const mockBridge = {
 }
 const storage = new Map<string, string>()
 Object.assign(globalThis, {
+  Element: MockElement,
   window: windowShim,
   document: documentShim,
   localStorage: { getItem: (key: string) => storage.get(key) ?? null,
@@ -211,7 +221,7 @@ async function test(name: string, run: () => void | Promise<void>) {
   catch (error) { failed++; console.error('  ✗ 用例异常:', error) }
 }
 const tauriCalls: Array<{ command: string; args: any }> = []
-function freshGame(tauri = false, shortcutRegistered = true): { g: any; petHit: MockElement; ctrl: any } {
+function freshGame(tauri = false): { g: any; petHit: MockElement; ctrl: any } {
   for (const record of [elements, windowListeners, documentListeners]) {
     for (const key of Object.keys(record)) delete record[key]
   }
@@ -220,9 +230,10 @@ function freshGame(tauri = false, shortcutRegistered = true): { g: any; petHit: 
   storage.clear()
   nowMs = 0
   documentShim.hidden = false
+  documentShim.visibilityState = 'visible'
+  documentShim.activeElement = null
+  documentFocused = true
   bodyMovedCb = bodyReleasedCb = pointerMoveCb = null
-  stealthToggleCb = null
-  shortcutStatus = { registered: shortcutRegistered, shortcut: 'H', error: shortcutRegistered ? null : 'Hotkey occupied (1409)' }
   bridgeCalls.setClickThrough.length = 0
   bridgeCalls.inputRegions.length = bridgeCalls.beginIds.length = bridgeCalls.endIds.length = 0
   bridgeCalls.bodyDragBegin = bridgeCalls.bodyDragEnd = bridgeCalls.snapBack = bridgeCalls.markReady = 0
@@ -232,7 +243,6 @@ function freshGame(tauri = false, shortcutRegistered = true): { g: any; petHit: 
   windowShim.fishingCodex = tauri ? undefined : mockBridge
   if (tauri) mockIPC((command, args) => {
     tauriCalls.push({ command, args })
-    if (command === 'stealth_shortcut_info') return { ...shortcutStatus }
   }, { shouldMockEvents: true })
   const g: any = new Game()
   return { g, petHit: created.find((element) => element.id === 'pet-hit')!, ctrl: g.controller }
@@ -243,11 +253,21 @@ function step(g: any, frames = 1) {
 function event(extra: object = {}) {
   return { button: 0, buttons: 1, pointerId: 1, isPrimary: true, pointerType: 'mouse',
     clientX: 238, clientY: 300, screenX: 238, screenY: 300,
+    target: null as MockElement | null, composedPath() { return this.target ? [this.target] : [] },
     preventDefault: noop, stopPropagation: noop, ...extra }
 }
 function fireWindow(type: string, extra: object = {}) {
   const e = event(extra)
   ;[...(windowListeners[type] ?? [])].forEach((cb) => cb(e))
+}
+function keyDown(code: string, extra: object = {}) {
+  const e = {
+    ...event(), code, repeat: false, target: null, defaultPrevented: false,
+    preventDefault() { this.defaultPrevented = true },
+    ...extra
+  }
+  ;[...(windowListeners.keydown ?? [])].forEach((cb) => cb(e))
+  return e
 }
 function pressBody(petHit: MockElement, extra: object = {}) { petHit.fire('pointerdown', event({ target: petHit, ...extra })) }
 function moveBody(dx: number, extra: object = {}) {
@@ -467,6 +487,7 @@ async function main() {
     fireWindow('keyup', { code: 'Space' })
     step(g)
     assert('迟到 keyup 不产生 release', ctrl.stateName === 'idle' && casts(g) === 0)
+    fireWindow('focus')
     fireWindow('keydown', { code: 'KeyC', repeat: false })
     step(g)
     assert('重新按 C 从零开始正常蓄力', ctrl.stateName === 'charge' && ctrl.ctx.castPower > 0 && ctrl.ctx.castPower < 0.1)
@@ -705,30 +726,26 @@ async function main() {
     clickAt(g, 318, 368, toolsTarget(g))
     assert('再次打开只显示一级菜单', g.toolsOpen && !g.toolsSubmenu.classList.contains('visible') && !list.classList.contains('visible'))
   })
-  await test('[30] 全局隐身事件无需焦点，菜单状态、存档和身体热区立即同步', async () => {
+  await test('[30] 窗口内H同步隐身、菜单、存档和身体热区，切走后不触发', () => {
     const { g, petHit } = freshGame()
-    await Promise.resolve()
     const stealthBtn = created.find((element) => element.title === 'H')!
     assert('隐身仅保留H快捷键属性，不增加菜单说明行', stealthBtn.getAttribute('aria-keyshortcuts') === 'H' && !created.some((element) => element.id === 'stealth-shortcut-state'))
-    assert('已接入原生隐身事件', stealthToggleCb !== null)
-    fireWindow('blur')
-    stealthToggleCb?.()
-    assert('未聚焦时原生事件隐藏人物并保存', g.view.stealth && g.save.data.stealth)
+    keyDown('KeyH')
+    assert('聚焦时H隐藏人物并保存', g.view.stealth && g.save.data.stealth)
     assert('隐身立即去掉DOM身体层和fallback命中', petHit.style.display === 'none' && !g.inPetBody(238, 300))
     const regions = bridgeCalls.inputRegions.at(-1) as Array<{ x: number; y: number; width: number; height: number }>
     assert('隐身立即移除身体原生热区，仍保留菜单', regions.length === 1 && regions[0].x === 302)
     assert('菜单隐身开关与快捷键同步', stealthBtn.children.some((child) => child.textContent === '开'))
-    stealthToggleCb?.()
-    assert('再次全局事件恢复人物和身体热区', !g.view.stealth && !g.save.data.stealth && petHit.style.display === '' && (bridgeCalls.inputRegions.at(-1) as unknown[]).length === 2)
-    fireWindow('keydown', { code: 'KeyH', repeat: false })
-    fireWindow('keydown', { code: 'KeyH', repeat: true })
-    assert('原生H已注册时，DOM H及长按不重复切换', !g.view.stealth)
+    fireWindow('blur')
+    keyDown('KeyH')
+    assert('窗口失焦后H不切换隐身', g.view.stealth && g.save.data.stealth)
+    fireWindow('focus')
+    keyDown('KeyH')
+    assert('再次聚焦按H恢复人物和身体热区', !g.view.stealth && !g.save.data.stealth && petHit.style.display === '' && (bridgeCalls.inputRegions.at(-1) as unknown[]).length === 2)
   })
-  await test('[31] 隐身取消普通身体蓄力和捕获，不误抛；不可用快捷键有提示且菜单可用', async () => {
-    const { g, petHit, ctrl } = freshGame(false, false)
-    await Promise.resolve()
-    const stealthBtn = created.find((element) => element.title?.includes('1409'))!
-    assert('注册错误只放悬停提示，不占用菜单布局', !!stealthBtn && !created.some((element) => element.id === 'stealth-shortcut-state'))
+  await test('[31] 菜单隐身取消普通身体蓄力和捕获，迟到松手不误抛', () => {
+    const { g, petHit, ctrl } = freshGame()
+    const stealthBtn = created.find((element) => element.title === 'H')!
     pressBody(petHit)
     step(g, 10)
     stealthBtn.fire('click', event())
@@ -738,40 +755,110 @@ async function main() {
     step(g)
     assert('迟到松手或隐藏层残留事件不误抛', casts(g) === 0 && ctrl.stateName === 'idle')
   })
-  await test('[32] 原生快捷键IPC与事件接线，角色卡片仅选中项显示使用中', async () => {
+  await test('[32] Tauri也使用窗口H，不读注册状态或响应全局事件，角色选中项唯一', async () => {
     const { g, petHit } = freshGame(true)
     await Promise.resolve()
-    assert('读取原生真实注册状态', tauriCalls.some(({ command }) => command === 'stealth_shortcut_info'))
+    assert('不再调用原生全局快捷键注册状态IPC', !tauriCalls.some(({ command }) => command === 'stealth_shortcut_info'))
+    const beforeDisplay = petHit.style.display
     await emit('stealth-toggle')
-    assert('原生事件直接切隐身及命中区', g.view.stealth && petHit.style.display === 'none')
+    assert('旧全局事件不触发隐身', !g.view.stealth && petHit.style.display === beforeDisplay)
+    keyDown('KeyH')
+    assert('Tauri窗口内H直接切隐身及命中区', g.view.stealth && petHit.style.display === 'none')
     const cards = (g.charGrid as MockElement).querySelectorAll('.char-card')
     assert('非选中角色不再显示重复切换文字', cards.filter((card) => card.querySelector('.sl')!.textContent === '使用中').length === 1 && cards.every((card) => ['', '使用中'].includes(card.querySelector('.sl')!.textContent)))
     const other = cards.find((card) => card.dataset.id !== g.skin)!
     other.fire('click', event())
     assert('切换后只有新角色显示使用中', cards.filter((card) => card.querySelector('.sl')!.textContent === '使用中').length === 1 && other.querySelector('.sl')!.textContent === '使用中')
   })
-  await test('[33] M静音、H隐身：单键生效，长按、修饰键与原生监听不重复切换', async () => {
-    const { g, ctrl } = freshGame(false, false)
-    await Promise.resolve()
-    fireWindow('keydown', { code: 'KeyH', repeat: false })
-    assert('H单键切换隐身，原生不可用时仍可在窗口内使用', g.view.stealth && g.save.data.stealth)
-    fireWindow('keydown', { code: 'KeyH', repeat: true })
+  await test('[33] M静音、H隐身：聚焦单键有效，长按与其他打字情景不触发', () => {
+    const { g, ctrl } = freshGame()
+    keyDown('KeyH')
+    assert('聚焦时H单键切换隐身', g.view.stealth && g.save.data.stealth)
+    keyDown('KeyH', { repeat: true })
     assert('长按H只切换一次', g.view.stealth)
     fireWindow('keyup', { code: 'KeyH' })
-    fireWindow('keydown', { code: 'KeyH', repeat: false })
+    keyDown('KeyH')
     assert('松开后再次按H恢复显示', !g.view.stealth)
     const muted = g.audio.muted
-    fireWindow('keydown', { code: 'KeyM', repeat: false })
+    keyDown('KeyM')
     assert('M单键切换静音', g.audio.muted !== muted)
-    fireWindow('keydown', { code: 'KeyM', repeat: true })
+    keyDown('KeyM', { repeat: true })
     assert('长按M只切换一次', g.audio.muted !== muted)
     for (const code of ['KeyH', 'KeyM']) {
       for (const modifier of ['ctrlKey', 'shiftKey', 'altKey', 'metaKey', 'isComposing']) {
-        fireWindow('keydown', { code, repeat: false, [modifier]: true })
+        const e = keyDown(code, { [modifier]: true })
+        assert(`${code} ${modifier} 不消费原按键`, !e.defaultPrevented)
       }
     }
     assert('带修饰键或输入法组合不触发M/H', !g.view.stealth && g.audio.muted !== muted)
     assert('M/H操作不误触蓄力或抛竿', !g.input.held && ctrl.stateName === 'idle' && casts(g) === 0)
+  })
+  await test('[34] H/M仅在实际获得焦点且可见时生效，悬停不算获得焦点', () => {
+    const { g } = freshGame()
+    const muted = g.audio.muted
+    const unchanged = () => !g.view.stealth && g.audio.muted === muted
+    const ignored = (label: string) => {
+      for (const code of ['KeyH', 'KeyM']) {
+        const e = keyDown(code)
+        assert(`${label} ${code} 不切换游戏`, unchanged())
+        assert(`${label} ${code} 不消费原按键`, !e.defaultPrevented)
+      }
+    }
+    fireWindow('blur')
+    ignored('收到blur后')
+    fireWindow('pointermove', { clientX: 238, clientY: 300 })
+    ignored('只悬停人物时')
+    documentFocused = false
+    fireWindow('focus')
+    ignored('document.hasFocus为false时')
+    documentFocused = true
+    documentShim.hidden = true
+    documentShim.visibilityState = 'hidden'
+    ignored('页面隐藏时')
+    documentShim.hidden = false
+    documentShim.visibilityState = 'visible'
+    keyDown('KeyH')
+    keyDown('KeyM')
+    assert('焦点和可见性恢复后H/M各触发一次', g.view.stealth && g.audio.muted !== muted)
+  })
+  await test('[35] 可编辑目标、编辑祖先和输入法保留H/M供打字使用', () => {
+    const { g } = freshGame()
+    const muted = g.audio.muted
+    const ignored = (label: string, extra: object) => {
+      for (const code of ['KeyH', 'KeyM']) {
+        const e = keyDown(code, extra)
+        assert(`${label} ${code} 不切换游戏且不消费原按键`, !g.view.stealth && g.audio.muted === muted && !e.defaultPrevented)
+      }
+    }
+    for (const tag of ['input', 'textarea', 'select']) ignored(tag, { target: new MockElement(tag) })
+    for (const attribute of ['true', '', 'plaintext-only']) {
+      const editor = new MockElement('div')
+      editor.setAttribute('contenteditable', attribute)
+      const nested = editor.appendChild(new MockElement('span'))
+      ignored(`contenteditable=${attribute}的子节点`, { target: nested })
+    }
+    const textbox = new MockElement('div')
+    textbox.setAttribute('role', 'textbox')
+    ignored('role=textbox', { target: textbox })
+    const shadowEditor = new MockElement('textarea')
+    ignored('Shadow DOM编辑路径', { target: new MockElement('div'), composedPath: () => [shadowEditor] })
+    documentShim.activeElement = new MockElement('input')
+    ignored('activeElement为输入框', { target: new MockElement('div') })
+    documentShim.activeElement = null
+    ignored('IME组合', { isComposing: true })
+    ignored('IME keyCode=229', { keyCode: 229 })
+    fireWindow('compositionstart')
+    ignored('compositionstart后事件未标记isComposing', {})
+    fireWindow('compositionend')
+    for (const code of ['KeyH', 'KeyM']) {
+      const prevented = keyDown(code, { defaultPrevented: true })
+      assert(`${code}已被组件处理时不切换游戏`, !g.view.stealth && g.audio.muted === muted && prevented.defaultPrevented)
+    }
+    const normal = new MockElement('button')
+    normal.setAttribute('contenteditable', 'false')
+    keyDown('KeyH', { target: normal })
+    keyDown('KeyM', { target: normal })
+    assert('普通非编辑按钮允许H/M游戏操作', g.view.stealth && g.audio.muted !== muted)
   })
   console.log(`\ninteraction-test: ${passed} passed, ${failed} failed`)
   process.exitCode = failed > 0 ? 1 : 0

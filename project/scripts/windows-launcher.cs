@@ -6,8 +6,8 @@ using System.Windows.Forms;
 
 [assembly: AssemblyTitle("Fishing Cat 钓鱼桌宠")]
 [assembly: AssemblyProduct("Fishing Cat 钓鱼桌宠")]
-[assembly: AssemblyVersion("0.1.7.0")]
-[assembly: AssemblyFileVersion("0.1.7.0")]
+[assembly: AssemblyVersion("0.1.8.0")]
+[assembly: AssemblyFileVersion("0.1.8.0")]
 
 // Build as a WinExe: the release root contains only this entry point and the
 // user's BGM folder; native runtime files stay together under project/runtime.

@@ -111,7 +111,7 @@ function fixture(tracks: LocalMusicTrack[] = [], saved: object = {}, options: {
         if (existing) return existing
         if (!roots.has(id)) { const element = new Element(id === 'game' ? 'canvas' : 'div'); element.id = id; roots.set(id, element) }
         return roots.get(id)
-      }, addEventListener: noop, removeEventListener: noop, hidden: false,
+      }, addEventListener: noop, removeEventListener: noop, hidden: false, visibilityState: 'visible', hasFocus: () => true,
       documentElement: { clientHeight: 390 }
     },
     window: {

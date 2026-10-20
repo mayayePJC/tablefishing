@@ -53,10 +53,6 @@ export function getPetBridge(): PetBridge | undefined {
       void invoke('set_click_through', { ignore })
     },
     setInputRegions: (regions) => invoke('set_input_regions', { regions }),
-    onStealthToggle: (cb) => {
-      void listen('stealth-toggle', () => cb())
-    },
-    stealthShortcutInfo: () => invoke('stealth_shortcut_info'),
     musicFolderInfo: () => invoke('music_folder_info'),
     listLocalMusic: () => invoke('list_local_music'),
     importLocalMusic: (files) => invoke('import_local_music', { files }),

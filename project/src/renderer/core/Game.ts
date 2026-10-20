@@ -35,12 +35,6 @@ function bgmShortName(id: BgmTrackId | null): string {
   return t.name
 }
 
-export interface StealthShortcutInfo {
-  registered: boolean
-  shortcut: string
-  error: string | null
-}
-
 /** 主进程暴露的桌宠桥 */
 export interface PetBridge extends Partial<LocalMusicBridge> {
   /** 拖窗：渲染进程通知主进程"进入/退出身体拖窗态"，窗口由 OS 原生移动（无重影） */
@@ -65,9 +59,6 @@ export interface PetBridge extends Partial<LocalMusicBridge> {
   setClickThrough: (ignore: boolean) => void
   /** 原生窗口形状：空白天然穿透，进入热点无需异步恢复。null 表示整窗。 */
   setInputRegions?: (regions: InputRect[] | null) => Promise<void> | void
-  /** 原生全局快捷键；由系统去重，窗口未聚焦时也可切换。 */
-  onStealthToggle?: (cb: () => void) => void
-  stealthShortcutInfo?: () => Promise<StealthShortcutInfo>
 }
 
 /** 游戏总装：透明画布、循环、输入、控制器、桌宠视图 */
@@ -88,9 +79,6 @@ export class Game {
   private musicStatusError = false
   private refreshMusicUi: (() => void) | null = null
   private refreshStealthUi: (() => void) | null = null
-  private stealthShortcut: StealthShortcutInfo = {
-    registered: false, shortcut: 'H', error: '全局快捷键仅桌面端可用'
-  }
   private rng = new Rng((Math.random() * 0xffffffff) >>> 0)
   private skin: CharacterSkin
   private sprites: SpriteSet
@@ -187,10 +175,7 @@ export class Game {
     this.input = new Input(this.canvas)
     this.input.onAnyKey = () => this.audio.unlock()
     this.input.onMuteToggle = () => this.audio.setMuted(!this.audio.muted)
-    this.input.onStealthToggle = () => {
-      // 已注册的原生 H 由 WM_HOTKEY 唯一处理，避免聚焦时切换两次。
-      if (!this.stealthShortcut.registered && this.stealthShortcut.error !== null) this.toggleStealth()
-    }
+    this.input.onStealthToggle = () => this.toggleStealth()
     // 弹窗开着时屏蔽钓鱼按下（图鉴/玩法说明覆盖层透明于指针，穿透的点击不应误起蓄力）
     this.input.inputBlocked = () => this.anyOverlayOpen()
     this.input.onCancel = () => {
@@ -199,18 +184,6 @@ export class Game {
 
     const bridge = getPetBridge()
     this.bridge = bridge
-    bridge?.onStealthToggle?.(() => this.toggleStealth())
-    if (bridge?.stealthShortcutInfo) {
-      this.stealthShortcut.error = null
-      void bridge.stealthShortcutInfo().then((info) => {
-        if (!info || typeof info.registered !== 'boolean') throw new Error('Shortcut registration unavailable')
-        this.stealthShortcut = info
-        this.refreshStealthUi?.()
-      }).catch(() => {
-        this.stealthShortcut.error = '全局快捷键不可用，可点击隐身切换'
-        this.refreshStealthUi?.()
-      })
-    }
     this.localMusic = new LocalMusicLibrary(bridge ?? {})
     this.audio.onMusicError = (message) => {
       this.musicSelectionRevision++
@@ -683,9 +656,8 @@ export class Game {
     const stealthBtn = subBtn('', () => this.toggleStealth())
     this.refreshStealthUi = () => {
       setToggleLabel(stealthBtn, '隐身', this.view.stealth)
-      const info = this.stealthShortcut
       stealthBtn.setAttribute('aria-keyshortcuts', 'H')
-      stealthBtn.title = info.registered || !info.error ? 'H' : `H · ${info.error}`
+      stealthBtn.title = 'H'
     }
     this.refreshStealthUi()
     const autoBtn = subBtn('', () => {

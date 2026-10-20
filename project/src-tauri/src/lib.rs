@@ -13,8 +13,6 @@ use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
 mod coordinates;
 mod music;
 mod input_region;
-mod global_hotkey;
-mod hotkey;
 use coordinates::logical_offset;
 
 /// 跨命令 / 窗口事件共享的桌宠状态（用 Arc<Mutex<>> 包裹，便于在 on_window_event 闭包里克隆）
@@ -483,7 +481,6 @@ pub fn run() {
                 }
             }
             build_tray(app.handle())?;
-            app.manage(hotkey::StealthHotkey::register(apph.clone()));
             start_pointer_poller(apph);
             Ok(())
         })
@@ -501,15 +498,8 @@ pub fn run() {
             music::read_local_music,
             music::remove_local_music,
             input_region::set_input_regions,
-            hotkey::stealth_shortcut_info,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| {
-            if matches!(event, tauri::RunEvent::Exit) {
-                if let Some(hotkey) = app.try_state::<hotkey::StealthHotkey>() {
-                    hotkey.shutdown();
-                }
-            }
-        });
+        .run(|_, _| {});
 }

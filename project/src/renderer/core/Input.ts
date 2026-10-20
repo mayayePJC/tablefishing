@@ -32,6 +32,8 @@ export class Input {
   inputBlocked: (() => boolean) | null = null
 
   private el: HTMLElement
+  private windowFocused = document.hasFocus()
+  private composing = false
 
   // 指针位置（画布坐标），用于悬停高亮
   private ptrX = -1
@@ -81,10 +83,16 @@ export class Input {
     el.addEventListener('contextmenu', (e) => e.preventDefault())
 
     window.addEventListener('keydown', (e) => {
+      // 置顶或鼠标悬停不代表键盘焦点；文字编辑和输入法也不属于游戏操作。
+      if (!this.windowFocused || !document.hasFocus() || document.hidden
+        || document.visibilityState === 'hidden' || e.defaultPrevented
+        || this.composing || e.isComposing || e.keyCode === 229
+        || e.ctrlKey || e.shiftKey || e.altKey || e.metaKey
+        || this.isEditing(e)) return
       if (e.code === 'KeyC' || e.code === 'Space') {
         e.preventDefault()
         if (!e.repeat) this.addSource(e.code)
-      } else if (!e.repeat && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && !e.isComposing) {
+      } else if (!e.repeat) {
         if (e.code === 'KeyM') this.onMuteToggle?.()
         if (e.code === 'KeyH') this.onStealthToggle?.()
       }
@@ -103,10 +111,26 @@ export class Input {
       this.ptrX = -1
       this.ptrY = -1
     }
-    window.addEventListener('blur', cancelAll)
+    window.addEventListener('focus', () => { this.windowFocused = true })
+    window.addEventListener('blur', () => {
+      this.windowFocused = false
+      this.composing = false
+      cancelAll()
+    })
+    window.addEventListener('compositionstart', () => { this.composing = true })
+    window.addEventListener('compositionend', () => { this.composing = false })
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) cancelAll()
     })
+  }
+
+  private isEditing(e: KeyboardEvent): boolean {
+    // composedPath 覆盖 Shadow DOM 中的编辑目标，activeElement 覆盖焦点内的编辑控件。
+    return [...e.composedPath(), document.activeElement].some((target) =>
+      target instanceof Element && ((target as HTMLElement).isContentEditable || target.closest(
+        'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]'
+      ) !== null)
+    )
   }
 
   /** 屏幕坐标 → 画布坐标 */
