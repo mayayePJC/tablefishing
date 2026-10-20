@@ -8,8 +8,8 @@ Windows 透明无边框**钓鱼桌宠**（Tauri v2 壳）。常驻桌面右上�
 
 技术栈：**Tauri v2**（Rust 壳 + 系统 WebView2，`src-tauri/`）+ 渲染层 TypeScript（`src/renderer/**`，electron-vite 打包）。无框架、无后端。窗口 `transparent/decorations:false/skipTaskbar/alwaysOnTop`，340×390。
 
-当前版本：**v0.1.6（2026-10-20）**，当前目录及交互见第15节。
-- 根目录：`fishing-codex.exe` 无控制台运行入口、`FishingCat-Setup-0.1.6.exe` 安装包；真实便携程序与加载器配套放在 `project/runtime/`。
+当前版本：**v0.1.7（2026-10-20）**，当前目录见第15节，快捷键及设置菜单以第16节为准。
+- 根目录：`fishing-codex.exe` 无控制台运行入口、`FishingCat-Setup-0.1.7.exe` 安装包；真实便携程序与加载器配套放在 `project/runtime/`。
 - `project/` 内保留源码、设计、计划、测试和开发配置；`BGM/` 仍放在发行根目录，保存用户自己的音乐。
 - 完整迁移报告见 `lightweight-rewrite-research.md` 第8节。旧版本交付方式保留在后续历史条目中。
 - 升级必须覆盖用户实际安装目录，并核对运行进程路径、版本与内嵌资源；只替换项目根部副本不会更新已安装版本。
@@ -152,7 +152,9 @@ Tauri 构建需 `export PATH="$HOME/.cargo/bin:/c/msys64/mingw64/bin:$PATH"`（R
 
 - v0.1.5最终发布：357项前端回归、typecheck、17项Rust音乐目录验证及cargo check通过，release/NSIS通过。原安装路径已更新并启动v0.1.5，单实例、响应和原生热区只读检查通过；安装和便携程序内嵌的两条Ogg均与源码资源逐字节匹配。浏览器MP3/Ogg解码、静音/互斥/停止/菜单边界通过。记录见outputs/v0.1.5安装验证.json及outputs/v0.1.5-qa。本轮未自动注入Windows鼠标输入或主观聆听。
 
-## 15. v0.1.6 当前交付（2026-10-20）
+## 15. v0.1.6 交付记录（2026-10-20）
+
+本节保留 v0.1.6 历史交付记录；当前安装包版本、隐身热键及设置说明行以第16节为准。
 
 - 根部只保留两个可见文件：`fishing-codex.exe` 无控制台启动入口与 `FishingCat-Setup-0.1.6.exe` 安装包。源码、设计、计划、测试、依赖和真实运行文件统一位于 `project/`；旧安装包在本地 `outputs/archive/`。
 - 真正的便携运行程序与 `WebView2Loader.dll` 配套放在 `project/runtime/`；根启动器根据自身位置启动，工作目录变化不影响资源定位。`BGM/` 仍在发行根目录，用户音乐和本地缓存不上传仓库。
@@ -162,3 +164,10 @@ Tauri 构建需 `export PATH="$HOME/.cargo/bin:/c/msys64/mingw64/bin:$PATH"`（R
 - 森林雨声改为柔和、响度平稳的绵雨；机场在0.15秒提示、1.15秒播报，每60秒一次。两条120秒循环音景均内嵌打包，用户已购OST仍只读本地文件。
 - 宝箱及鱼类经济仅规划，见同目录《宝箱与鱼类收益系统方案.md》，本轮未实现钱包、材料或商店。
 - 开发从 `project/` 运行 npm/typecheck/test/tauri build。当前发行与安装路径检查记录保存在本地 `outputs/`，不随源码上传。
+
+## 16. v0.1.7 当前快捷键与菜单（2026-10-20）
+
+- 隐身改为 **H** 单键全局切换，无需组合键；桌宠未聚焦时仍有效，长按只切换一次，释放后再次按下才继续切换。退出释放原生注册。
+- **M** 继续在桌宠获得键盘输入时切换静音，并同步音效菜单状态。
+- 删除设置菜单“隐身”下方的独立快捷键说明行，只保留现有开关行；原生 H 注册失败仅在隐身按钮悬停 title 提示，点击切换仍可用。
+- 根目录当前安装包更新为 `FishingCat-Setup-0.1.7.exe`。目录、音乐、隐身热区与存档约定继续沿用第15节，其余玩法未改。

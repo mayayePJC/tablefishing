@@ -89,7 +89,7 @@ export class Game {
   private refreshMusicUi: (() => void) | null = null
   private refreshStealthUi: (() => void) | null = null
   private stealthShortcut: StealthShortcutInfo = {
-    registered: false, shortcut: 'Ctrl+Shift+H', error: '全局快捷键仅桌面端可用'
+    registered: false, shortcut: 'H', error: '全局快捷键仅桌面端可用'
   }
   private rng = new Rng((Math.random() * 0xffffffff) >>> 0)
   private skin: CharacterSkin
@@ -187,6 +187,10 @@ export class Game {
     this.input = new Input(this.canvas)
     this.input.onAnyKey = () => this.audio.unlock()
     this.input.onMuteToggle = () => this.audio.setMuted(!this.audio.muted)
+    this.input.onStealthToggle = () => {
+      // 已注册的原生 H 由 WM_HOTKEY 唯一处理，避免聚焦时切换两次。
+      if (!this.stealthShortcut.registered && this.stealthShortcut.error !== null) this.toggleStealth()
+    }
     // 弹窗开着时屏蔽钓鱼按下（图鉴/玩法说明覆盖层透明于指针，穿透的点击不应误起蓄力）
     this.input.inputBlocked = () => this.anyOverlayOpen()
     this.input.onCancel = () => {
@@ -495,6 +499,8 @@ export class Game {
       setToggleLabel(soundBtn, '音效', !this.audio.muted)
     })
     setToggleLabel(soundBtn, '音效', !this.audio.muted)
+    soundBtn.title = 'M'
+    soundBtn.setAttribute('aria-keyshortcuts', 'M')
 
     // 音乐用独立面板，避免三级菜单挤占设置操作和曲名。
     const bgmBtn = document.createElement('button')
@@ -675,20 +681,11 @@ export class Game {
     })
 
     const stealthBtn = subBtn('', () => this.toggleStealth())
-    const shortcutNote = document.createElement('div')
-    shortcutNote.id = 'stealth-shortcut-state'
-    shortcutNote.className = 'bgm-note shortcut-note'
-    shortcutNote.setAttribute('role', 'status')
-    shortcutNote.setAttribute('aria-live', 'polite')
-    sub.appendChild(shortcutNote)
     this.refreshStealthUi = () => {
       setToggleLabel(stealthBtn, '隐身', this.view.stealth)
       const info = this.stealthShortcut
-      stealthBtn.setAttribute('aria-keyshortcuts', info.registered ? 'Control+Shift+H' : '')
-      stealthBtn.title = info.registered ? `${info.shortcut} · 全局切换隐身` : '点击切换隐身'
-      shortcutNote.textContent = info.registered ? `${info.shortcut} · 全局隐身` :
-        info.error ? '全局快捷键不可用，可点击隐身切换' : `${info.shortcut} · 正在注册`
-      shortcutNote.title = info.error ?? '窗口未聚焦时也可使用，长按只切换一次'
+      stealthBtn.setAttribute('aria-keyshortcuts', 'H')
+      stealthBtn.title = info.registered || !info.error ? 'H' : `H · ${info.error}`
     }
     this.refreshStealthUi()
     const autoBtn = subBtn('', () => {

@@ -169,7 +169,7 @@ let bodyMovedCb: ((position: BodyEvent) => void) | null = null
 let bodyReleasedCb: ((position: BodyEvent) => void) | null = null
 let pointerMoveCb: ((position: Pos) => void) | null = null
 let stealthToggleCb: (() => void) | null = null
-let shortcutStatus = { registered: true, shortcut: 'Ctrl+Shift+H', error: null as string | null }
+let shortcutStatus = { registered: true, shortcut: 'H', error: null as string | null }
 const mockBridge = {
   bodyDragBegin: (gestureId: number) => { bridgeCalls.bodyDragBegin++; bridgeCalls.beginIds.push(gestureId) },
   bodyDragEnd: (gestureId: number) => { bridgeCalls.bodyDragEnd++; bridgeCalls.endIds.push(gestureId) },
@@ -222,7 +222,7 @@ function freshGame(tauri = false, shortcutRegistered = true): { g: any; petHit: 
   documentShim.hidden = false
   bodyMovedCb = bodyReleasedCb = pointerMoveCb = null
   stealthToggleCb = null
-  shortcutStatus = { registered: shortcutRegistered, shortcut: 'Ctrl+Shift+H', error: shortcutRegistered ? null : 'Hotkey occupied (1409)' }
+  shortcutStatus = { registered: shortcutRegistered, shortcut: 'H', error: shortcutRegistered ? null : 'Hotkey occupied (1409)' }
   bridgeCalls.setClickThrough.length = 0
   bridgeCalls.inputRegions.length = bridgeCalls.beginIds.length = bridgeCalls.endIds.length = 0
   bridgeCalls.bodyDragBegin = bridgeCalls.bodyDragEnd = bridgeCalls.snapBack = bridgeCalls.markReady = 0
@@ -708,8 +708,8 @@ async function main() {
   await test('[30] 全局隐身事件无需焦点，菜单状态、存档和身体热区立即同步', async () => {
     const { g, petHit } = freshGame()
     await Promise.resolve()
-    const note = created.find((element) => element.id === 'stealth-shortcut-state')!
-    assert('设置显示实际注册成功的全局快捷键', note.textContent === 'Ctrl+Shift+H · 全局隐身')
+    const stealthBtn = created.find((element) => element.title === 'H')!
+    assert('隐身仅保留H快捷键属性，不增加菜单说明行', stealthBtn.getAttribute('aria-keyshortcuts') === 'H' && !created.some((element) => element.id === 'stealth-shortcut-state'))
     assert('已接入原生隐身事件', stealthToggleCb !== null)
     fireWindow('blur')
     stealthToggleCb?.()
@@ -717,19 +717,18 @@ async function main() {
     assert('隐身立即去掉DOM身体层和fallback命中', petHit.style.display === 'none' && !g.inPetBody(238, 300))
     const regions = bridgeCalls.inputRegions.at(-1) as Array<{ x: number; y: number; width: number; height: number }>
     assert('隐身立即移除身体原生热区，仍保留菜单', regions.length === 1 && regions[0].x === 302)
-    const stealthBtn = created.find((element) => element.title === 'Ctrl+Shift+H · 全局切换隐身')!
     assert('菜单隐身开关与快捷键同步', stealthBtn.children.some((child) => child.textContent === '开'))
     stealthToggleCb?.()
     assert('再次全局事件恢复人物和身体热区', !g.view.stealth && !g.save.data.stealth && petHit.style.display === '' && (bridgeCalls.inputRegions.at(-1) as unknown[]).length === 2)
-    fireWindow('keydown', { code: 'KeyH', ctrlKey: true, shiftKey: true, repeat: true })
-    assert('JS不重复处理全局组合键，避免长按双切换', !g.view.stealth)
+    fireWindow('keydown', { code: 'KeyH', repeat: false })
+    fireWindow('keydown', { code: 'KeyH', repeat: true })
+    assert('原生H已注册时，DOM H及长按不重复切换', !g.view.stealth)
   })
   await test('[31] 隐身取消普通身体蓄力和捕获，不误抛；不可用快捷键有提示且菜单可用', async () => {
     const { g, petHit, ctrl } = freshGame(false, false)
     await Promise.resolve()
-    const note = created.find((element) => element.id === 'stealth-shortcut-state')!
-    assert('注册失败可见且保留实际错误详情', note.textContent.includes('不可用') && note.title.includes('1409'))
-    const stealthBtn = created.find((element) => element.title === '点击切换隐身')!
+    const stealthBtn = created.find((element) => element.title?.includes('1409'))!
+    assert('注册错误只放悬停提示，不占用菜单布局', !!stealthBtn && !created.some((element) => element.id === 'stealth-shortcut-state'))
     pressBody(petHit)
     step(g, 10)
     stealthBtn.fire('click', event())
@@ -750,6 +749,29 @@ async function main() {
     const other = cards.find((card) => card.dataset.id !== g.skin)!
     other.fire('click', event())
     assert('切换后只有新角色显示使用中', cards.filter((card) => card.querySelector('.sl')!.textContent === '使用中').length === 1 && other.querySelector('.sl')!.textContent === '使用中')
+  })
+  await test('[33] M静音、H隐身：单键生效，长按、修饰键与原生监听不重复切换', async () => {
+    const { g, ctrl } = freshGame(false, false)
+    await Promise.resolve()
+    fireWindow('keydown', { code: 'KeyH', repeat: false })
+    assert('H单键切换隐身，原生不可用时仍可在窗口内使用', g.view.stealth && g.save.data.stealth)
+    fireWindow('keydown', { code: 'KeyH', repeat: true })
+    assert('长按H只切换一次', g.view.stealth)
+    fireWindow('keyup', { code: 'KeyH' })
+    fireWindow('keydown', { code: 'KeyH', repeat: false })
+    assert('松开后再次按H恢复显示', !g.view.stealth)
+    const muted = g.audio.muted
+    fireWindow('keydown', { code: 'KeyM', repeat: false })
+    assert('M单键切换静音', g.audio.muted !== muted)
+    fireWindow('keydown', { code: 'KeyM', repeat: true })
+    assert('长按M只切换一次', g.audio.muted !== muted)
+    for (const code of ['KeyH', 'KeyM']) {
+      for (const modifier of ['ctrlKey', 'shiftKey', 'altKey', 'metaKey', 'isComposing']) {
+        fireWindow('keydown', { code, repeat: false, [modifier]: true })
+      }
+    }
+    assert('带修饰键或输入法组合不触发M/H', !g.view.stealth && g.audio.muted !== muted)
+    assert('M/H操作不误触蓄力或抛竿', !g.input.held && ctrl.stateName === 'idle' && casts(g) === 0)
   })
   console.log(`\ninteraction-test: ${passed} passed, ${failed} failed`)
   process.exitCode = failed > 0 ? 1 : 0

@@ -1,7 +1,6 @@
 use std::sync::Mutex;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_CONTROL, MOD_SHIFT};
 use crate::global_hotkey::GlobalHotkey;
 
 #[derive(Serialize)]
@@ -18,7 +17,7 @@ pub struct StealthHotkey {
 
 impl StealthHotkey {
     pub fn register(app: AppHandle) -> Self {
-        match GlobalHotkey::register(MOD_CONTROL | MOD_SHIFT, b'H' as u32, move || {
+        match GlobalHotkey::register(0, b'H' as u32, move || {
             let _ = app.emit("stealth-toggle", ());
         }) {
             Ok(runtime) => Self { runtime: Mutex::new(Some(runtime)), error: None },
@@ -37,7 +36,7 @@ pub fn stealth_shortcut_info(state: State<StealthHotkey>) -> StealthShortcutInfo
     let registered = state.runtime.lock().unwrap().as_ref().is_some_and(GlobalHotkey::is_registered);
     StealthShortcutInfo {
         registered,
-        shortcut: "Ctrl+Shift+H",
+        shortcut: "H",
         error: if registered { None } else { Some(state.error.clone().unwrap_or_else(|| "Shortcut unavailable".into())) },
     }
 }

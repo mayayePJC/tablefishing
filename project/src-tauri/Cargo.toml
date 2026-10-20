@@ -1,6 +1,6 @@
 [package]
 name = "fishing-codex"
-version = "0.1.6"
+version = "0.1.7"
 description = "Fishing Cat 钓鱼桌宠 (Tauri 壳)"
 authors = ["Fishing Codex"]
 edition = "2021"

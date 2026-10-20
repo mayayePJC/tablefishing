@@ -15,6 +15,7 @@ export class Input {
 
   /** 功能键回调 */
   onMuteToggle: (() => void) | null = null
+  onStealthToggle: (() => void) | null = null
   onAnyKey: (() => void) | null = null
 
   /** 工具按钮命中（右下角汉堡菜单） */
@@ -83,8 +84,9 @@ export class Input {
       if (e.code === 'KeyC' || e.code === 'Space') {
         e.preventDefault()
         if (!e.repeat) this.addSource(e.code)
-      } else if (e.code === 'KeyM') {
-        this.onMuteToggle?.()
+      } else if (!e.repeat && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && !e.isComposing) {
+        if (e.code === 'KeyM') this.onMuteToggle?.()
+        if (e.code === 'KeyH') this.onStealthToggle?.()
       }
       this.onAnyKey?.()
     })
