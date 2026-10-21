@@ -360,6 +360,7 @@ async function main() {
   const seed = {
     version: 1, totalXp: 5432, character: 'farmer', localBgm: 'owned-ost',
     rods: { owned: ['bamboo', 'training'], equipped: 'training' }, stealth: true, autostart: false,
+    waterReminderMinutes: 60, sedentaryReminderMinutes: 50,
     collection: { carp: { count: 4, bestSize: 8, bestQuality: 'gold' } },
     stats: { casts: 100, caught: 51, escaped: 41, trash: 8, perfect: 3, treasure: 2 }
   }

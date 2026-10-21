@@ -133,6 +133,20 @@ function render(scene: SceneState, overlay = false) {
 const visual: SceneState = { ...first, time: 0.4, levelUp: { ...first.levelUp!, elapsed: 0.4 } }
 const withFeedback = render(visual)
 const withoutFeedback = render({ ...visual, levelUp: null })
+
+// A rewarded catch can make the result card taller (MAX/PERFECT/TREASURE),
+// but the character must remain visible below the card.  This is the real
+// regression reported in the app: PetView used to suppress the whole player
+// whenever any of those result flags was present.
+const expandedResultScene: SceneState = {
+  ...visual,
+  result: { ...visual.result!, maxCast: true, perfect: true, treasure: true }
+}
+const expandedResult = render(expandedResultScene)
+const expandedResultPixels = expandedResult.getContext('2d').getImageData(207, 260, 64, 82).data
+let expandedResultOpaque = 0
+for (let i = 3; i < expandedResultPixels.length; i += 4) if (expandedResultPixels[i] > 0) expandedResultOpaque++
+check(expandedResultOpaque > 200, 'An expanded fish result keeps the character visible below the result card')
 check(Buffer.from(withFeedback.getContext('2d').getImageData(54, 42, 232, 220).data).equals(
   Buffer.from(withoutFeedback.getContext('2d').getImageData(54, 42, 232, 220).data)),
   'Upgrade particles and banner leave all result text and content pixels untouched')

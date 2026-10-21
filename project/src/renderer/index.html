@@ -70,6 +70,12 @@
     #tools-menu button:active { background: var(--paper-shade); box-shadow: inset 0 1px 0 var(--wood-light); }
     #tools-menu .menu-label { min-width: 0; text-align: left; }
     #tools-menu .menu-value { flex: none; color: var(--muted); font-size: 11px; font-weight: 400; }
+    #tools-menu .reminder-interval {
+      flex: 0 0 42px; width: 42px; min-width: 0; height: 22px; padding: 2px 3px;
+      color: var(--wood-dark); background: var(--paper-light); border: 1px solid var(--wood-light);
+      border-radius: 1px; font: 11px/1 var(--font-ui); text-align: center; user-select: text;
+    }
+    #tools-menu .reminder-interval:focus { outline: 2px solid var(--wood); outline-offset: 0; }
     #tools-menu .menu-arrow { flex: none; color: var(--wood); }
     .submenu {
       position: absolute; right: calc(100% + 8px); top: var(--sub-top, 0px);

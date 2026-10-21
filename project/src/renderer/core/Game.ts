@@ -10,7 +10,14 @@ import type { SpriteSet } from '../render/SpriteFactory'
 import { ROD_TIPS, buildRodIcon } from '../render/SpriteFactory'
 import { PetView } from '../render/PetView'
 import { FishingController } from '../fishing/FishingController'
-import { SaveStore } from '../fishing/data/SaveStore'
+import {
+  SaveStore,
+  DEFAULT_SEDENTARY_REMINDER_MINUTES,
+  DEFAULT_WATER_REMINDER_MINUTES,
+  MAX_REMINDER_MINUTES,
+  MIN_REMINDER_MINUTES,
+  normalizeReminderMinutes
+} from '../fishing/data/SaveStore'
 import { FISH_TABLE } from '../fishing/data/fishTable'
 import { SPOTS, spotFishDefs } from '../fishing/data/spots'
 import type { CharacterSkin, BgmTrackId } from '../shared/types'
@@ -64,8 +71,6 @@ export interface PetBridge extends Partial<LocalMusicBridge> {
 /** 游戏总装：透明画布、循环、输入、控制器、桌宠视图 */
 export class Game {
   /** 提醒周期：开关只保存在存档中，计时从本次打开桌宠开始。 */
-  private static readonly WATER_REMINDER_SECONDS = 60 * 60
-  private static readonly SEDENTARY_REMINDER_SECONDS = 50 * 60
   private canvas: HTMLCanvasElement
   private ctx: CanvasRenderingContext2D
   private loop: Loop
@@ -681,22 +686,84 @@ export class Game {
       bridge?.setAutostart(this.save.data.autostart)
     })
     setToggleLabel(autoBtn, '开机自启', this.save.data.autostart ?? false)
+    const setReminderLabel = (button: HTMLButtonElement, label: string, on: boolean, minutes: number): HTMLInputElement => {
+      setToggleLabel(button, label, on)
+      const input = document.createElement('input')
+      input.className = 'reminder-interval'
+      input.type = 'number'
+      input.min = String(MIN_REMINDER_MINUTES)
+      input.max = String(MAX_REMINDER_MINUTES)
+      input.step = '1'
+      input.value = String(minutes)
+      input.setAttribute('aria-label', `${label}间隔（分钟）`)
+      input.title = `${MIN_REMINDER_MINUTES}-${MAX_REMINDER_MINUTES} 分钟`
+      // The number field is inside the menu button so it stays aligned with the toggle.
+      // Stop the event here to avoid toggling/closing the parent button while editing.
+      for (const event of ['pointerdown', 'mousedown', 'click']) input.addEventListener(event, (e) => e.stopPropagation())
+      button.appendChild(input)
+      return input
+    }
     const waterBtn = subBtn('', () => {
       this.save.data.waterReminder = !(this.save.data.waterReminder ?? false)
       this.waterReminderElapsed = 0
       this.save.save()
-      setToggleLabel(waterBtn, '喝水提醒', this.save.data.waterReminder)
+      refreshWaterReminder()
     })
-    setToggleLabel(waterBtn, '喝水提醒', this.save.data.waterReminder ?? false)
-    waterBtn.title = '每 60 分钟提醒一次'
+    const waterInterval = setReminderLabel(
+      waterBtn,
+      '喝水提醒',
+      this.save.data.waterReminder ?? false,
+      normalizeReminderMinutes(this.save.data.waterReminderMinutes, DEFAULT_WATER_REMINDER_MINUTES)
+    )
+    const refreshWaterReminder = (): void => {
+      const minutes = normalizeReminderMinutes(this.save.data.waterReminderMinutes, DEFAULT_WATER_REMINDER_MINUTES)
+      this.save.data.waterReminderMinutes = minutes
+      setToggleLabel(waterBtn, '喝水提醒', this.save.data.waterReminder ?? false)
+      waterBtn.appendChild(waterInterval)
+      waterInterval.value = String(minutes)
+      waterBtn.title = `每 ${minutes} 分钟提醒一次`
+    }
     const sedentaryBtn = subBtn('', () => {
       this.save.data.sedentaryReminder = !(this.save.data.sedentaryReminder ?? false)
       this.sedentaryReminderElapsed = 0
       this.save.save()
-      setToggleLabel(sedentaryBtn, '久坐提醒', this.save.data.sedentaryReminder)
+      refreshSedentaryReminder()
     })
-    setToggleLabel(sedentaryBtn, '久坐提醒', this.save.data.sedentaryReminder ?? false)
-    sedentaryBtn.title = '每 50 分钟提醒一次'
+    const sedentaryInterval = setReminderLabel(
+      sedentaryBtn,
+      '久坐提醒',
+      this.save.data.sedentaryReminder ?? false,
+      normalizeReminderMinutes(this.save.data.sedentaryReminderMinutes, DEFAULT_SEDENTARY_REMINDER_MINUTES)
+    )
+    const refreshSedentaryReminder = (): void => {
+      const minutes = normalizeReminderMinutes(this.save.data.sedentaryReminderMinutes, DEFAULT_SEDENTARY_REMINDER_MINUTES)
+      this.save.data.sedentaryReminderMinutes = minutes
+      setToggleLabel(sedentaryBtn, '久坐提醒', this.save.data.sedentaryReminder ?? false)
+      sedentaryBtn.appendChild(sedentaryInterval)
+      sedentaryInterval.value = String(minutes)
+      sedentaryBtn.title = `每 ${minutes} 分钟提醒一次`
+    }
+    const commitReminderInterval = (kind: 'water' | 'sedentary', input: HTMLInputElement): void => {
+      const fallback = kind === 'water' ? DEFAULT_WATER_REMINDER_MINUTES : DEFAULT_SEDENTARY_REMINDER_MINUTES
+      const minutes = normalizeReminderMinutes(Number(input.value), fallback)
+      input.value = String(minutes)
+      if (kind === 'water') {
+        this.save.data.waterReminderMinutes = minutes
+        this.waterReminderElapsed = 0
+        refreshWaterReminder()
+      } else {
+        this.save.data.sedentaryReminderMinutes = minutes
+        this.sedentaryReminderElapsed = 0
+        refreshSedentaryReminder()
+      }
+      this.save.save()
+    }
+    waterInterval.addEventListener('change', () => commitReminderInterval('water', waterInterval))
+    waterInterval.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); commitReminderInterval('water', waterInterval) } })
+    sedentaryInterval.addEventListener('change', () => commitReminderInterval('sedentary', sedentaryInterval))
+    sedentaryInterval.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); commitReminderInterval('sedentary', sedentaryInterval) } })
+    refreshWaterReminder()
+    refreshSedentaryReminder()
     // 退出也收进设置二级目录
     subBtn('退出', () => bridge?.quit())
 
@@ -706,8 +773,8 @@ export class Game {
       settingsBtn.setAttribute('aria-expanded', String(open))
       settingsArrow.textContent = open ? '◂' : '▸'
       setToggleLabel(soundBtn, '音效', !this.audio.muted)
-      setToggleLabel(waterBtn, '喝水提醒', this.save.data.waterReminder ?? false)
-      setToggleLabel(sedentaryBtn, '久坐提醒', this.save.data.sedentaryReminder ?? false)
+      refreshWaterReminder()
+      refreshSedentaryReminder()
       if (open) {
         sub.classList.add('visible')
         this.fitMenuToViewport(sub, settingsBtn)
@@ -762,7 +829,8 @@ export class Game {
   private updateReminders(dt: number): void {
     if (this.save.data.waterReminder) {
       this.waterReminderElapsed += dt
-      if (this.waterReminderElapsed >= Game.WATER_REMINDER_SECONDS && !this.reminderKind) {
+      const waterSeconds = normalizeReminderMinutes(this.save.data.waterReminderMinutes, DEFAULT_WATER_REMINDER_MINUTES) * 60
+      if (this.waterReminderElapsed >= waterSeconds && !this.reminderKind) {
         this.waterReminderElapsed = 0
         this.showReminder('water')
       }
@@ -771,7 +839,8 @@ export class Game {
     }
     if (this.save.data.sedentaryReminder) {
       this.sedentaryReminderElapsed += dt
-      if (this.sedentaryReminderElapsed >= Game.SEDENTARY_REMINDER_SECONDS && !this.reminderKind) {
+      const sedentarySeconds = normalizeReminderMinutes(this.save.data.sedentaryReminderMinutes, DEFAULT_SEDENTARY_REMINDER_MINUTES) * 60
+      if (this.sedentaryReminderElapsed >= sedentarySeconds && !this.reminderKind) {
         this.sedentaryReminderElapsed = 0
         this.showReminder('sedentary')
       }

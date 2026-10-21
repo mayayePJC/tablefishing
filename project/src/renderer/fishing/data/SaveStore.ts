@@ -3,6 +3,10 @@ import { CHARACTER_LIST } from '../../shared/characters'
 import { levelFromXp } from './xpTable'
 
 const KEY = 'fishing-codex-save-v1'
+export const DEFAULT_WATER_REMINDER_MINUTES = 60
+export const DEFAULT_SEDENTARY_REMINDER_MINUTES = 50
+export const MIN_REMINDER_MINUTES = 1
+export const MAX_REMINDER_MINUTES = 240
 const LEGACY_CHARACTERS = new Map<string, CharacterSkin>([
   ['rabbit', 'shinchan'], ['fox', 'maruko'], ['panda', 'pikachu'],
   ['raccoon', 'rukawa'], ['robot', 'doraemon']
@@ -22,9 +26,17 @@ function defaultSave(): SaveData {
     rods: { owned: ['bamboo'], equipped: 'bamboo' },
     stealth: false,
     autostart: false,
+    waterReminderMinutes: DEFAULT_WATER_REMINDER_MINUTES,
+    sedentaryReminderMinutes: DEFAULT_SEDENTARY_REMINDER_MINUTES,
     collection: {},
     stats: { casts: 0, caught: 0, escaped: 0, trash: 0, perfect: 0, treasure: 0 }
   }
+}
+
+/** Keep user-configured reminder intervals usable when reading old or edited saves. */
+export function normalizeReminderMinutes(value: unknown, fallback: number): number {
+  const n = typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : fallback
+  return Math.min(MAX_REMINDER_MINUTES, Math.max(MIN_REMINDER_MINUTES, n))
 }
 
 /** 本地存档：等级/经验/图鉴/统计（localStorage） */
@@ -44,12 +56,19 @@ export class SaveStore {
       const data: SaveData = {
         ...defaultSave(), ...parsed,
         character: normalizeCharacter(parsed.character),
+        waterReminderMinutes: normalizeReminderMinutes(parsed.waterReminderMinutes, DEFAULT_WATER_REMINDER_MINUTES),
+        sedentaryReminderMinutes: normalizeReminderMinutes(parsed.sedentaryReminderMinutes, DEFAULT_SEDENTARY_REMINDER_MINUTES),
         stats: { ...defaultSave().stats, ...parsed.stats }
       }
       // Removed melody selections must not silently turn into a different recording.
       // User-imported music, progress, collection and equipment remain intact.
       if (parsed.bgm != null && parsed.bgm !== 'forest-rain' && parsed.bgm !== 'airport') data.bgm = null
-      if (data.character !== parsed.character || data.bgm !== parsed.bgm) {
+      if (
+        data.character !== parsed.character ||
+        data.bgm !== parsed.bgm ||
+        data.waterReminderMinutes !== parsed.waterReminderMinutes ||
+        data.sedentaryReminderMinutes !== parsed.sedentaryReminderMinutes
+      ) {
         try { localStorage.setItem(KEY, JSON.stringify(data)) } catch { /* still use the readable save */ }
       }
       return data

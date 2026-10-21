@@ -504,6 +504,18 @@ async function main() {
     dismiss.click()
     assert.equal(reminder.classList.contains('visible'), false)
 
+     const waterInterval = water!.querySelector<HTMLInputElement>('.reminder-interval')
+     assert.ok(waterInterval, '喝水提醒应提供可编辑的分钟数')
+     waterInterval!.value = '2'
+     waterInterval!.fire('change')
+     assert.equal(f.game.save.data.waterReminderMinutes, 2)
+     f.game.updateReminders(119)
+     assert.equal(reminder.classList.contains('visible'), false)
+     f.game.updateReminders(1)
+     assert.equal(reminder.classList.contains('visible'), true)
+     dismiss.click()
+     water!.click()
+
     sedentary!.click()
     assert.equal(f.game.save.data.sedentaryReminder, true)
     f.game.updateReminders(50 * 60 - 1)

@@ -95,10 +95,10 @@ export class PetView {
     }
     const px = state.playerX
     const py = state.playerFootY
-    // 奖励卡会伸入人物区域；此时让结算独占画面，避免只露出半身和一截等级条。
-    const r = state.result
-    const expandedResult = r?.kind === 'fish' && (r.maxCast || r.perfect || r.treasure || r.unlockedRod || (r.fishName?.length ?? 0) > 8)
-    const showPet = !this.stealth && !expandedResult
+    // 结算卡绘制在人物前景层，但人物仍需保留在卡片下方作为结果场景的一部分。
+    // 之前按 MAX/PERFECT/TREASURE 等标记直接跳过人物绘制，导致特殊鱼结算时整个人物消失。
+    // 结算卡的高度会随内容自适应，先画人物、再画卡片即可自然遮挡重叠区域。
+    const showPet = !this.stealth
 
     // 点击区域示意（先画底层填充/边框，最后再画文字标签，确保标签永远在最上层）
     if (this.showClickMap) this.drawClickMapBack(ctx)

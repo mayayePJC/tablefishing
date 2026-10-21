@@ -42,6 +42,7 @@ function populatedSave(character: unknown) {
     version: 1, totalXp: 4875, character,
     rods: { owned: ['bamboo', 'fiberglass', 'iridium'], equipped: 'iridium' },
     stealth: true, autostart: true, bgm: 'forest-rain', localBgm: 'owned-ost-local-id',
+    waterReminderMinutes: 60, sedentaryReminderMinutes: 50,
     collection: { tuna: { count: 12, bestSize: 58, bestQuality: 'iridium' } },
     stats: { casts: 51, caught: 37, escaped: 8, trash: 6, perfect: 17, treasure: 4 }
   }

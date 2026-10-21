@@ -97,8 +97,12 @@ export interface SaveData {
   autostart?: boolean
   /** 定时喝水提醒开关（默认关闭，开启后每 60 分钟提醒一次） */
   waterReminder?: boolean
+  /** 喝水提醒间隔（分钟，1-240；旧存档缺失时使用 60） */
+  waterReminderMinutes?: number
   /** 定时久坐提醒开关（默认关闭，开启后每 50 分钟提醒一次） */
   sedentaryReminder?: boolean
+  /** 久坐提醒间隔（分钟，1-240；旧存档缺失时使用 50） */
+  sedentaryReminderMinutes?: number
   /** 内置环境音；旧旋律 ID 在读取存档时迁移为关闭，本地选曲存在时优先。 */
   bgm?: BgmTrackId | null
   /** 用户本地导入的背景音乐 ID；文件由桌面端存放于应用数据目录。 */
