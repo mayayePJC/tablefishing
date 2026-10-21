@@ -2,16 +2,16 @@
 
 Windows 上的像素钓鱼桌宠：透明小窗常驻桌面，按住人物蓄力、松开抛竿，等待咬钩后用绿条追鱼。支持 10 种角色、鱼类图鉴、等级成长、升级音画与本地音乐。
 
-当前交付版本：**v0.1.8**。技术栈为 Tauri v2、TypeScript 与 Canvas；无后端，进度保存在本机。
+当前交付版本：**v0.1.9**。技术栈为 Tauri v2、TypeScript 与 Canvas；无后端，进度保存在本机。
 
 ## 开始使用
 
-完整保留发行目录后，双击根目录的 `fishing-codex.exe`。它是无控制台启动器，真正的游戏程序及加载器在 `project/runtime/`。也可以运行 `FishingCat-Setup-0.1.8.exe` 安装。
+完整保留发行目录后，双击根目录的 `fishing-codex.exe`。它是无控制台启动器，真正的游戏程序及加载器在 `project/runtime/`。也可以运行 `FishingCat-Setup-0.1.9.exe` 安装。
 
 ```text
 Fishing Cat/
 ├─ fishing-codex.exe                 # 双击启动入口
-├─ FishingCat-Setup-0.1.8.exe         # 当前安装包
+├─ FishingCat-Setup-0.1.9.exe         # 当前安装包
 ├─ BGM/                             # 自己的本地音乐，不随源码上传
 ├─ .github/README.md
 └─ project/

@@ -20,7 +20,7 @@ outputs/
 # Only publish the current release at the workspace root
 /*.exe
 !/fishing-codex.exe
-!/FishingCat-Setup-0.1.8.exe
+!/FishingCat-Setup-0.1.9.exe
 /*.dll
 
 # Editor and operating system files
